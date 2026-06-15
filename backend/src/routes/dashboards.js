@@ -52,7 +52,7 @@ router.get('/metabase/dashboards/:id', async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const dashboard = await metabase.getDashboard(id);
-    let cards = dashboard.ordered_cards || dashboard.cards || [];
+    let cards = dashboard.dashcards || dashboard.ordered_cards || dashboard.cards || [];
 
     if (!cards.length) {
       try {
@@ -65,18 +65,33 @@ router.get('/metabase/dashboards/:id', async (req, res) => {
     if (cards.length) {
       cards = await Promise.all(cards.map(async (item) => {
         const cardEntry = item.card || item;
-        const cardId = cardEntry.id || cardEntry.card_id || cardEntry.card_id;
+        const cardId = cardEntry.id || cardEntry.card_id;
         if (!cardId) return item;
         try {
           const fullCard = await metabase.getCard(cardId);
-          return { ...item, card: fullCard, ...fullCard };
+          // Preserve dashcard-level fields (parameter_mappings, col, row, size etc.)
+          // Only set fullCard as the nested 'card' property
+          return { ...item, card: fullCard };
         } catch (err) {
           return item;
         }
       }));
     }
 
-    res.json({ ...dashboard, cards, ordered_cards: dashboard.ordered_cards || cards });
+    res.json({ ...dashboard, cards, ordered_cards: cards, dashcards: cards });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// Get distinct values for a specific field (for populating dropdown filters)
+router.get('/metabase/field/:fieldId/values', async (req, res) => {
+  try {
+    const fieldId = parseInt(req.params.fieldId);
+    const data = await metabase.getFieldValues(fieldId);
+    // Metabase returns { values: [[val1], [val2], ...], field_id: ... }
+    const values = (data.values || []).map(v => Array.isArray(v) ? v[0] : v);
+    res.json({ values, field_id: fieldId });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

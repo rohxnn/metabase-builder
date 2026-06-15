@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
 import { listDashboards, deleteDashboard, publishDashboard, listMetabaseDashboards, getMetabaseDashboard, saveDashboard } from '../services/api';
+import { extractAndCleanWhereConditions } from '../services/queryPreview';
 
 const METABASE_DRAFT_NAMESPACE = '9b9c2a8b-5997-4a0c-8f72-2f8f6e2f2b5a';
 
@@ -21,15 +22,24 @@ const asArray = (value) => {
 const copyText = (value) => `${value || 'Untitled Dashboard'} (Duplicate)`;
 const metabaseDraftId = (id) => uuidv5(`metabase-dashboard:${id}`, METABASE_DRAFT_NAMESPACE);
 
-const cloneConfig = (config = emptyConfig, name, description) => {
-  const cloned = JSON.parse(JSON.stringify({ ...emptyConfig, ...config }));
-  cloned.collection = { ...emptyConfig.collection, ...(cloned.collection || {}) };
+const cloneConfig = (config = {}, name = '', description = '') => {
+  const cloned = JSON.parse(JSON.stringify(config));
   cloned.dashboard = {
-    ...emptyConfig.dashboard,
     ...(cloned.dashboard || {}),
     name: copyText(cloned.dashboard?.name || name),
     description: cloned.dashboard?.description || description || '',
   };
+
+  // Generate new IDs for filters and build a mapping table
+  const filterIdMap = {};
+  cloned.filters = asArray(cloned.filters).map(filter => {
+    const newId = uuidv4().slice(0, 8);
+    if (filter.id) {
+      filterIdMap[filter.id] = newId;
+    }
+    return { ...filter, id: newId };
+  });
+
   cloned.cards = asArray(cloned.cards).map(card => {
     const {
       metabaseCardId,
@@ -37,26 +47,37 @@ const cloneConfig = (config = emptyConfig, name, description) => {
       dashboardTabId,
       resultMetadata,
       rawDatasetQuery,
-      parameterMappings,
       ...localCard
     } = card;
+
+    // Update parameterMappings to refer to the new filter IDs
+    const updatedMappings = asArray(card.parameterMappings).map(mapping => {
+      const newParamId = filterIdMap[mapping.parameter_id] || mapping.parameter_id;
+      return {
+        ...mapping,
+        parameter_id: newParamId
+      };
+    });
+
     return {
       ...localCard,
       id: uuidv4(),
       title: copyText(card.title),
       col: (card.col ?? 0) + 1,
       row: (card.row ?? 0) + 1,
-      parameterMappings: [],
+      parameterMappings: updatedMappings,
     };
   });
-  cloned.filters = asArray(cloned.filters).map(filter => ({ ...filter, id: uuidv4().slice(0, 8) }));
+
   cloned.groups = asArray(cloned.groups);
+  cloned.whereConditions = asArray(cloned.whereConditions);
   return cloned;
 };
 
+const METABASE_URL = process.env.REACT_APP_METABASE_URL || 'http://localhost:3000';
 const getDashboardLink = (dashboard) => {
-  if (dashboard.public_uuid) return `/public/dashboard/${dashboard.public_uuid}`;
-  if (dashboard.id) return `/dashboard/${dashboard.id}`;
+  if (dashboard.public_uuid) return `${METABASE_URL}/public/dashboard/${dashboard.public_uuid}`;
+  if (dashboard.id) return `${METABASE_URL}/dashboard/${dashboard.id}`;
   return '#';
 };
 
@@ -119,9 +140,10 @@ const makeFilterFromTemplate = (name, tag = {}) => ({
   slug: name,
   type: inferFilterType(name, tag),
   sectionId: inferFilterType(name, tag).split('/')[0],
-  values_source_type: tag.values_source_type || 'static-list',
-  values_source_config: tag.values_source_config || {},
+  values_source_type: tag.values_source_type || null,
+  values_source_config: tag.values_source_config || null,
   required: Boolean(tag.required),
+  default: tag.default ?? null,
 });
 
 const makeTemplateTag = (name, tag = {}) => ({
@@ -209,28 +231,58 @@ export default function DashboardList({ onOpen, onCreate }) {
     const remote = await getMetabaseDashboard(dashboard.id);
     const tabIdToIndex = new Map(asArray(remote.tabs).map((tab, index) => [tab.id, index]));
     const rawCards = pickDashcards(remote);
-    const filtersBySlug = new Map(asArray(remote.parameters).map(parameter => [
-      parameter.slug || parameter.id,
-      {
+    const filtersBySlug = new Map();
+    asArray(remote.parameters).forEach(parameter => {
+      const slug = parameter.slug || parameter.id;
+      // Skip question-only parameters (e.g. reporting_period with static-list values)
+      // These live in the card's templateTags, not as dashboard-level filters
+      const isStaticDropdown = parameter.values_source_type === 'static-list';
+      const isVariableTarget = parameter.target?.[0] === 'variable';
+      if (isStaticDropdown && isVariableTarget) return;
+
+      let values = parameter.values_source_config?.values || [];
+      if (Array.isArray(values)) {
+        values = values.map(v => Array.isArray(v) ? v[0] : v);
+      }
+      const values_source_config = { ...parameter.values_source_config, values };
+
+      filtersBySlug.set(slug, {
         id: parameter.id || uuidv4().slice(0, 8),
         name: parameter.name || parameter.slug || 'Filter',
         slug: parameter.slug || (parameter.name || 'filter').toLowerCase().replace(/\s+/g, '_'),
         type: parameter.type || 'string/=',
         sectionId: parameter.sectionId || parameter.section_id || 'string',
-        values_source_type: parameter.values_source_type || 'static-list',
-        values_source_config: parameter.values_source_config || {},
+        values_source_type: parameter.values_source_type || null,
+        values_source_config,
         required: Boolean(parameter.required),
-      },
-    ]));
+        default: parameter.default ?? null,
+      });
+    });
+
+    const extractedWhereConditions = [];
 
     const cards = rawCards.map((item, index) => {
       const card = item.card || item;
       const title = card.name || card.display_name || `Card ${index + 1}`;
       const dashboardTabId = item.dashboard_tab_id ?? item.dashboardTabId ?? item.tab_id;
-      const query = getCardQuery(card);
+      const rawQuery = getCardQuery(card);
+      const { cleanedQuery, extractedConditions } = extractAndCleanWhereConditions(rawQuery);
+      if (extractedConditions && extractedConditions.length > 0) {
+        extractedWhereConditions.push(...extractedConditions);
+      }
+      const query = cleanedQuery;
       const templateTags = ensureTemplateTags(query, getTemplateTags(card));
+      // Auto-add template tags as dashboard filters for ease of use by non-tech teams.
+      // Skip question-only filters (tags with static-list custom values not in remote.parameters).
       extractTemplateNames(query, templateTags).forEach(name => {
-        if (!filtersBySlug.has(name)) filtersBySlug.set(name, makeFilterFromTemplate(name, templateTags[name]));
+        if (!filtersBySlug.has(name)) {
+          const tag = templateTags[name] || {};
+          const hasStaticValues = tag['values-source-type'] === 'static-list' || tag.values_source_type === 'static-list';
+          // If it has custom static dropdown values, it's a question-specific filter (e.g. reporting_period)
+          if (hasStaticValues) return;
+          const filter = makeFilterFromTemplate(name, tag);
+          filtersBySlug.set(name, filter);
+        }
       });
 
       return {
@@ -250,10 +302,40 @@ export default function DashboardList({ onOpen, onCreate }) {
         sizeY: item.size?.y ?? item.size_y ?? item.sizeY ?? item.h ?? 4,
         tabIndex: tabIdToIndex.has(dashboardTabId) ? tabIdToIndex.get(dashboardTabId) : undefined,
         dashboardTabId: dashboardTabId || null,
-        parameterMappings: card.parameter_mappings || item.parameter_mappings || [],
+        parameterMappings: item.parameter_mappings || card.parameter_mappings || [],
         templateTags,
       };
     });
+
+    // Extract dimensions (Field Filters) from cards' parameters mappings & template tags
+    cards.forEach(card => {
+      (card.parameterMappings || []).forEach(mapping => {
+        const paramId = mapping.parameter_id;
+        const targetTag = mapping.target?.[1]?.[1];
+        if (paramId && targetTag) {
+          const tagObj = card.templateTags?.[targetTag];
+          if (tagObj && tagObj.type === 'dimension' && Array.isArray(tagObj.dimension)) {
+            const fieldId = tagObj.dimension[1];
+            let filter = filtersBySlug.get(paramId);
+            if (!filter) {
+              filter = Array.from(filtersBySlug.values()).find(f => f.id === paramId || f.slug === paramId);
+            }
+            if (filter && fieldId) {
+              filter.fieldId = fieldId;
+              filter.databaseId = card.databaseId || 3;
+              if (tagObj['widget-type']) {
+                filter.type = tagObj['widget-type'];
+              }
+            }
+          }
+        }
+      });
+    });
+
+    // Global WHERE conditions are extracted from card queries on import.
+    // Necessary unique conditions (like program_id and leader_id) are placed in whereConditions
+    // so they can be modified globally and dynamically injected upon publish.
+    const whereConditions = [...new Set(extractedWhereConditions)];
 
     const name = duplicate ? copyText(remote.name || dashboard.name) : (remote.name || dashboard.name);
     const description = remote.description || dashboard.description || '';
@@ -287,6 +369,7 @@ export default function DashboardList({ onOpen, onCreate }) {
         cards,
         filters: [...filtersBySlug.values()],
         groups: [],
+        whereConditions,
       },
       status: 'draft',
     };
@@ -387,25 +470,29 @@ export default function DashboardList({ onOpen, onCreate }) {
                   {d.description && <div style={styles.savedDescription}>{d.description}</div>}
                   <div style={styles.metaLine}>
                     <span style={{ ...styles.badge, background: d.status === 'published' ? '#d3f9d8' : '#fff3bf' }}>{d.status || 'draft'}</span>
-                    <span>{d.metabase_dashboard_id ? `Metabase ID: ${d.metabase_dashboard_id}` : 'Not published'}</span>
+                    {d.config?.cards && <span style={{ background: '#eef2ff', color: '#4f46e5', padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>📊 {d.config.cards.length} cards</span>}
+                    {d.config?.filters && d.config.filters.length > 0 && <span style={{ background: '#f0fdf4', color: '#16a34a', padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>🎛️ {d.config.filters.length} filters</span>}
+                    <span>{d.metabase_dashboard_id ? `Metabase #${d.metabase_dashboard_id}` : 'Not published'}</span>
                     {d.updated_at && <span>Updated {new Date(d.updated_at).toLocaleString()}</span>}
                   </div>
                 </div>
                 <div style={styles.rowActions}>
-                  <button style={styles.primaryActionBtn} onClick={() => onOpen(d)}>Edit</button>
-                  <button style={styles.actionBtn} onClick={() => handleDuplicateSaved(d)}>Duplicate</button>
+                  <button style={styles.primaryActionBtn} onClick={() => onOpen(d)} title="Edit dashboard">✏️ Edit</button>
+                  <button style={styles.actionBtn} onClick={() => handleDuplicateSaved(d)} title="Duplicate dashboard">📋 Duplicate</button>
                   <button
-                    style={{ ...styles.actionBtn, background: '#2f9e44', color: '#fff', borderColor: '#2f9e44' }}
+                    style={{ ...styles.actionBtn, background: 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', borderColor: '#059669' }}
                     onClick={() => handlePublish(d.id)}
                     disabled={publishing === d.id}
+                    title="Publish to Metabase"
                   >
-                    {publishing === d.id ? 'Publishing...' : 'Publish'}
+                    {publishing === d.id ? '⏳ Publishing...' : '🚀 Publish'}
                   </button>
                   <button
                     style={{ ...styles.actionBtn, background: '#fff5f5', color: '#c92a2a', borderColor: '#ffc9c9' }}
                     onClick={() => handleDelete(d.id)}
+                    title="Delete dashboard"
                   >
-                    Delete
+                    🗑 Delete
                   </button>
                 </div>
               </div>
@@ -445,23 +532,26 @@ export default function DashboardList({ onOpen, onCreate }) {
                     style={styles.primaryActionBtn}
                     onClick={() => handleEditMetabase(d)}
                     disabled={remoteLoading === `edit-${d.id}`}
+                    title="Edit in builder"
                   >
-                    {remoteLoading === `edit-${d.id}` ? 'Loading...' : 'Edit'}
+                    {remoteLoading === `edit-${d.id}` ? '⏳ Loading...' : '✏️ Edit'}
                   </button>
                   <button
                     style={styles.actionBtn}
                     onClick={() => handleDuplicateMetabase(d)}
                     disabled={remoteLoading === `duplicate-${d.id}`}
+                    title="Duplicate as new draft"
                   >
-                    {remoteLoading === `duplicate-${d.id}` ? 'Duplicating...' : 'Duplicate'}
+                    {remoteLoading === `duplicate-${d.id}` ? '⏳ Duplicating...' : '📋 Duplicate'}
                   </button>
                   <a
                     href={getDashboardLink(d)}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={styles.viewBtn}
+                    title="View in Metabase"
                   >
-                    View
+                    🔗 View in Metabase
                   </a>
                 </div>
               </div>

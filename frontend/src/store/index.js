@@ -7,6 +7,7 @@ const defaultConfig = {
   cards: [],
   filters: [],
   groups: [],
+  whereConditions: [],
 };
 
 const builderSlice = createSlice({
@@ -24,13 +25,19 @@ const builderSlice = createSlice({
     publishing: false,
     error: null,
     successMessage: null,
+    metadata: null,
   },
   reducers: {
     loadDashboard(state, { payload }) {
+      const config = payload.config || defaultConfig;
       return {
         ...state,
         ...payload,
-        config: payload.config || defaultConfig,
+        config: {
+          ...defaultConfig,
+          ...config,
+          whereConditions: config.whereConditions || [],
+        },
         metabase_dashboard_id: payload.metabase_dashboard_id || null,
         metabase_collection_id: payload.metabase_collection_id || null,
         metabase_card_ids: payload.metabase_card_ids || {},
@@ -83,16 +90,15 @@ const builderSlice = createSlice({
           dashboardTabId,
           resultMetadata,
           rawDatasetQuery,
-          parameterMappings,
           ...localCard
         } = original;
         state.config.cards.push({
           ...localCard,
           id: uuidv4(),
-          title: `${original.title} (Copy)`,
+          title: `${original.title} (Duplicate)`,
           col: original.col + 1,
           row: original.row + 1,
-          parameterMappings: [],
+          parameterMappings: original.parameterMappings || [],
         });
       }
     },
@@ -112,23 +118,58 @@ const builderSlice = createSlice({
         name: payload.name || 'New Filter',
         slug: (payload.name || 'new_filter').toLowerCase().replace(/\s+/g, '_'),
         type: payload.type || 'string/=',
-        sectionId: payload.sectionId || 'string',
-        values_source_type: payload.values_source_type || 'static-list',
-        values_source_config: payload.values_source_config || {},
+        sectionId: payload.sectionId || (payload.type || 'string/=').split('/')[0],
+        values_source_type: payload.values_source_type || null,
+        values_source_config: payload.values_source_config || null,
+        databaseId: payload.databaseId || null,
+        tableName: payload.tableName || null,
+        fieldName: payload.fieldName || null,
+        fieldId: payload.fieldId || null,
       });
     },
     updateFilter(state, { payload }) {
       const idx = state.config.filters.findIndex(f => f.id === payload.id);
       if (idx !== -1) state.config.filters[idx] = { ...state.config.filters[idx], ...payload };
     },
+    updateFilters(state, { payload }) {
+      state.config.filters = payload;
+    },
     removeFilter(state, { payload }) {
-      state.config.filters = state.config.filters.filter(f => f.id !== payload);
+      const filter = state.config.filters.find(f => f.id === payload);
+      if (filter) {
+        const slug = filter.slug;
+        state.config.filters = state.config.filters.filter(f => f.id !== payload);
+        if (state.config.whereConditions) {
+          const condText = `{{${slug}}}`;
+          state.config.whereConditions = state.config.whereConditions.filter(
+            c => c.trim() !== condText
+          );
+        }
+      }
     },
     addGroup(state, { payload }) {
       state.config.groups.push({ name: payload });
     },
     removeGroup(state, { payload }) {
       state.config.groups.splice(payload, 1);
+    },
+    setMetadata(state, { payload }) {
+      state.metadata = payload;
+    },
+    addWhereCondition(state, { payload }) {
+      if (!state.config.whereConditions) state.config.whereConditions = [];
+      state.config.whereConditions.push(payload || '');
+    },
+    updateWhereCondition(state, { payload }) {
+      const { index, value } = payload;
+      if (state.config.whereConditions && state.config.whereConditions[index] !== undefined) {
+        state.config.whereConditions[index] = value;
+      }
+    },
+    removeWhereCondition(state, { payload }) {
+      if (state.config.whereConditions) {
+        state.config.whereConditions.splice(payload, 1);
+      }
     },
     setSaving(state, { payload }) { state.saving = payload; },
     setPublishing(state, { payload }) { state.publishing = payload; },

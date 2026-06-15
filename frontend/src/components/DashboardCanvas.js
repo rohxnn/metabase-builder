@@ -5,7 +5,7 @@ import 'react-resizable/css/styles.css';
 import { useDispatch, useSelector } from 'react-redux';
 import { actions } from '../store';
 import { runQuery } from '../services/api';
-import { toPreviewSql } from '../services/queryPreview';
+import { toPreviewSql, injectWhereConditions } from '../services/queryPreview';
 import CardEditor from './CardEditor';
 
 const CARD_ICONS = { bar: '📊', line: '📈', pie: '🥧', scalar: '🔢', table: '📋', map: '🗺️', area: '📉', row: '📊' };
@@ -190,15 +190,19 @@ function CardPreview({ card, result }) {
 function CardItem({ card, onEdit, onRemove, onDuplicate }) {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
+  const whereConditions = useSelector(s => s.builder.config.whereConditions) || [];
+  const filters = useSelector(s => s.builder.config.filters) || [];
+  const metadata = useSelector(s => s.builder.metadata);
 
   useEffect(() => {
     if (!card.query?.trim()) { setResult(null); return; }
     setLoading(true);
-    runQuery(toPreviewSql(card.query))
+    const finalQuery = injectWhereConditions(card.query, whereConditions, filters, metadata);
+    runQuery(toPreviewSql(finalQuery))
       .then(r => setResult(r))
       .catch(e => setResult({ error: e.response?.data?.error || e.message }))
       .finally(() => setLoading(false));
-  }, [card.query]);
+  }, [card.query, whereConditions, filters, metadata]);
 
   return (
     <div style={styles.card}>

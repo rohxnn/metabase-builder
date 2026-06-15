@@ -19,3 +19,4 @@ export const listMetabaseDashboards = () => api.get('/dashboards/metabase/dashbo
 export const getMetabaseDashboard = (id) => api.get(`/dashboards/metabase/dashboards/${id}`).then(r => r.data);
 export const runQuery = (sql) => api.post('/dashboards/query', { sql }).then(r => r.data);
 export const listCollections = () => api.get('/dashboards/metabase/collections').then(r => r.data);
+export const getFieldValues = (fieldId) => api.get(`/dashboards/metabase/field/${fieldId}/values`).then(r => r.data);

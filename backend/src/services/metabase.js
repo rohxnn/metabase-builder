@@ -93,6 +93,9 @@ class MetabaseService {
   async listDatabases() { return this.get('/database'); }
   async getDatabaseMetadata(dbId) { return this.get(`/database/${dbId}/metadata`); }
 
+  // Field values (distinct values for a field)
+  async getFieldValues(fieldId) { return this.get(`/field/${fieldId}/values`); }
+
   async getDatabaseId(dbName) {
     const data = await this.listDatabases();
     const db = (data.data || []).find(d => d.name === dbName);

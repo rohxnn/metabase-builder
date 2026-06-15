@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { actions } from '../store';
-import { saveDashboard, publishDashboard } from '../services/api';
+import { saveDashboard, publishDashboard, listDatabases, getDatabaseMetadata } from '../services/api';
 import CardPalette from './CardPalette';
 import DashboardCanvas from './DashboardCanvas';
 import ConfigPanel from './ConfigPanel';
@@ -14,6 +14,113 @@ export default function Builder({ onBack }) {
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState(null);
+
+  useEffect(() => {
+    const fetchMeta = async () => {
+      try {
+        const dbs = await listDatabases();
+        const dbList = dbs?.data || dbs || [];
+        const activeDb = dbList.find(d => d.name === 'mitra5') || dbList[0];
+        if (activeDb) {
+          const meta = await getDatabaseMetadata(activeDb.id);
+          dispatch(actions.setMetadata(meta));
+        }
+      } catch (err) {
+        console.error('Failed to load database metadata in Builder:', err);
+      }
+    };
+    fetchMeta();
+  }, [dispatch]);
+
+  const filters = state.config.filters;
+  const metadata = state.metadata;
+
+  useEffect(() => {
+    if (!metadata || !filters || filters.length === 0) return;
+    
+    let updated = false;
+    const newFilters = filters.map(f => {
+      // Case 1: Has fieldId but missing tableName/fieldName (imported from Metabase)
+      if (f.fieldId && (!f.tableName || !f.fieldName)) {
+        for (const table of metadata.tables || []) {
+          const field = table.fields?.find(fieldObj => fieldObj.id === f.fieldId);
+          if (field) {
+            updated = true;
+            return {
+              ...f,
+              tableName: table.name,
+              fieldName: field.name,
+              databaseId: metadata.id || f.databaseId || 3,
+            };
+          }
+        }
+      }
+      
+      // Case 2: Has tableName/fieldName but missing fieldId (added predefined or custom before metadata loaded)
+      if (f.tableName && f.fieldName && !f.fieldId) {
+        const table = metadata.tables?.find(t => t.name === f.tableName || t.display_name === f.tableName);
+        const field = table?.fields?.find(fieldObj => fieldObj.name === f.fieldName || fieldObj.display_name === f.fieldName);
+        if (field) {
+          updated = true;
+          return {
+            ...f,
+            fieldId: field.id,
+            databaseId: metadata.id || f.databaseId || 3,
+          };
+        }
+      }
+
+      // Case 3: Simple filter tag with no fieldId, tableName, fieldName (from Metabase import)
+      // but matches standard filter slugs. We auto-bind it to database fields.
+      if (!f.fieldId && !f.tableName && !f.fieldName) {
+        let tableName = '';
+        let fieldName = '';
+        let type = f.type || 'string/=';
+
+        const slug = f.slug?.toLowerCase();
+        if (slug === 'program') {
+          tableName = 'programs';
+          fieldName = 'name';
+        } else if (slug === 'leader_category') {
+          tableName = 'leader_category';
+          fieldName = 'name';
+        } else if (slug === 'state') {
+          tableName = 'submissions';
+          fieldName = 'state';
+        } else if (slug === 'district') {
+          tableName = 'submissions';
+          fieldName = 'district';
+        } else if (slug === 'date') {
+          tableName = 'submissions';
+          fieldName = 'created_at';
+          type = 'date/range';
+        }
+
+        if (tableName && fieldName) {
+          const table = metadata.tables?.find(t => t.name === tableName);
+          const field = table?.fields?.find(fieldObj => fieldObj.name === fieldName);
+          if (field) {
+            updated = true;
+            return {
+              ...f,
+              tableName,
+              fieldName,
+              fieldId: field.id,
+              databaseId: metadata.id || f.databaseId || 3,
+              type,
+              sectionId: type.split('/')[0]
+            };
+          }
+        }
+      }
+      
+      return f;
+    });
+
+    if (updated) {
+      dispatch(actions.updateFilters(newFilters));
+    }
+  }, [metadata, filters, dispatch]);
 
   const handleSave = async () => {
     setSaving(true);
