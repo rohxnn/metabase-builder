@@ -111,13 +111,20 @@ const getCardQuery = (card = {}) => {
   return '';
 };
 
-const getTemplateTags = (card = {}) => (
-  card.dataset_query?.native?.['template-tags']
-  || card.dataset_query?.native?.template_tags
-  || card.dataset_query?.['template-tags']
-  || card.dataset_query?.template_tags
-  || {}
-);
+const getTemplateTags = (card = {}) => {
+  const datasetQuery = card.dataset_query || {};
+  const nativeStage = asArray(datasetQuery.stages).find(stage => stage['template-tags'] || stage.template_tags);
+  if (nativeStage) {
+    return nativeStage['template-tags'] || nativeStage.template_tags || {};
+  }
+  return (
+    datasetQuery.native?.['template-tags']
+    || datasetQuery.native?.template_tags
+    || datasetQuery?.['template-tags']
+    || datasetQuery?.template_tags
+    || {}
+  );
+};
 
 const extractTemplateNames = (query = '', templateTags = {}) => {
   const names = new Set(Object.keys(templateTags));
@@ -315,7 +322,10 @@ export default function DashboardList({ onOpen, onCreate }) {
         if (paramId && targetTag) {
           const tagObj = card.templateTags?.[targetTag];
           if (tagObj && tagObj.type === 'dimension' && Array.isArray(tagObj.dimension)) {
-            const fieldId = tagObj.dimension[1];
+            let fieldId = tagObj.dimension[1];
+            if (typeof fieldId === 'object' && fieldId !== null && tagObj.dimension[2] !== undefined) {
+              fieldId = tagObj.dimension[2];
+            }
             let filter = filtersBySlug.get(paramId);
             if (!filter) {
               filter = Array.from(filtersBySlug.values()).find(f => f.id === paramId || f.slug === paramId);

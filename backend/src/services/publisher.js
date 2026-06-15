@@ -176,6 +176,42 @@ function injectWhereConditions(query = '', conditions = [], filters = [], metada
   }
 }
 
+function extractFieldId(fieldVal, existingDimension = null) {
+  if (!fieldVal) return null;
+  if (typeof fieldVal === 'number' || typeof fieldVal === 'string') {
+    return fieldVal;
+  }
+  if (typeof fieldVal === 'object') {
+    // If it's a lib/uuid object, look inside existingDimension if available
+    if (Array.isArray(existingDimension) && existingDimension[0] === 'field') {
+      if (typeof existingDimension[1] === 'object' && existingDimension[1] !== null && existingDimension[2] !== undefined) {
+        return existingDimension[2];
+      }
+      if (typeof existingDimension[1] === 'number' || typeof existingDimension[1] === 'string') {
+        return existingDimension[1];
+      }
+    }
+    // As a backup, check if fieldVal itself is an array
+    if (Array.isArray(fieldVal) && fieldVal[0] === 'field') {
+      if (typeof fieldVal[1] === 'object' && fieldVal[1] !== null && fieldVal[2] !== undefined) {
+        return fieldVal[2];
+      }
+      return fieldVal[1];
+    }
+  }
+  return fieldVal;
+}
+
+function normalizeDimension(dim) {
+  if (!Array.isArray(dim)) return dim;
+  if (dim[0] === 'field') {
+    if (typeof dim[1] === 'object' && dim[1] !== null && dim[2] !== undefined) {
+      return ['field', dim[2], null];
+    }
+  }
+  return dim;
+}
+
 /**
  * Build template tags for a native SQL query card.
  * 
@@ -199,7 +235,7 @@ function buildTemplateTags(card, filters = []) {
   });
 
   return extractTemplateNames(card.query).reduce((tags, name) => {
-    const filter = (filters || []).find(f => f.slug === name);
+    const filter = findFilterForTag(name, filters);
     const hasFieldMapping = filter && filter.fieldId;
     
     // Determine the tag type:
@@ -249,10 +285,21 @@ function buildTemplateTags(card, filters = []) {
 
     if (tagType === 'dimension') {
       // For dimension tags, we need the field reference
+      let resolvedFieldId = null;
       if (filter && filter.fieldId) {
-        tagObj.dimension = ['field', filter.fieldId, null];
+        resolvedFieldId = extractFieldId(filter.fieldId, existing[name]?.dimension);
+      }
+      if (!resolvedFieldId && existing[name]?.dimension) {
+        const norm = normalizeDimension(existing[name].dimension);
+        if (Array.isArray(norm) && norm[0] === 'field') {
+          resolvedFieldId = norm[1];
+        }
+      }
+
+      if (resolvedFieldId) {
+        tagObj.dimension = ['field', resolvedFieldId, null];
       } else if (existing[name]?.dimension) {
-        tagObj.dimension = existing[name].dimension;
+        tagObj.dimension = normalizeDimension(existing[name].dimension);
       }
       tagObj['widget-type'] = existing[name]?.['widget-type'] || filter?.type || 'string/=';
     }

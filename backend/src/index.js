@@ -11,6 +11,16 @@ app.use(express.json({ limit: '10mb' }));
 
 app.get('/health', (req, res) => res.json({ status: 'UP' }));
 
+app.get('/debug-db', async (req, res) => {
+  try {
+    const metabase = require('./services/metabase');
+    const dbId = await metabase.getDatabaseId(config.metabase.database);
+    res.json({ dbName: config.metabase.database, dbId, metabaseUrl: config.metabase.url });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 app.use('/api/dashboards', auth, dashboardRoutes);
 
 db.init()

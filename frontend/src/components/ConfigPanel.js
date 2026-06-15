@@ -385,7 +385,7 @@ export default function ConfigPanel() {
               
               <div style={styles.mappingBadge}>
                 {f.fieldId ? (
-                  <span>🔗 <b>{f.tableName}.{f.fieldName}</b> <span style={{ opacity: 0.6 }}>(ID: {f.fieldId})</span></span>
+                  <span>🔗 <b>{f.tableName}.{f.fieldName}</b> <span style={{ opacity: 0.6 }}>(ID: {typeof f.fieldId === 'object' && f.fieldId !== null ? (f.fieldId['lib/uuid'] || JSON.stringify(f.fieldId)) : f.fieldId})</span></span>
                 ) : (
                   <span>📝 Simple filter (unmapped)</span>
                 )}

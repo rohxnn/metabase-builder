@@ -399,7 +399,13 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                 
                 const currentMapping = (form.parameterMappings || []).find(m => m.target?.[1]?.[1] === variable);
                 const currentFilterId = currentMapping ? currentMapping.parameter_id : '';
-                const selectedFieldId = currentTag.dimension?.[1] || '';
+                let selectedFieldId = '';
+                if (Array.isArray(currentTag.dimension)) {
+                  selectedFieldId = currentTag.dimension[1];
+                  if (typeof selectedFieldId === 'object' && selectedFieldId !== null && currentTag.dimension[2] !== undefined) {
+                    selectedFieldId = currentTag.dimension[2];
+                  }
+                }
                 const accentColor = getVarAccentColor(currentTag);
                 const typeLabel = getVarTypeLabel(currentTag);
 

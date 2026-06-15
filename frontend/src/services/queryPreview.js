@@ -220,14 +220,13 @@ export function extractAndCleanWhereConditions(query) {
       for (const cond of conds) {
         const cleanedCond = cond.trim();
         if (cleanedCond && cleanedCond !== '1=1' && cleanedCond !== '1 = 1') {
-          const lowerCond = cleanedCond.toLowerCase();
-          const isGlobal = lowerCond.includes('program_id') || 
-                           lowerCond.includes('leader_id') || 
-                           lowerCond.includes('programs.id') ||
-                           lowerCond.includes('submissions.program_id') ||
-                           lowerCond.includes('submissions.leader_id');
-          if (isGlobal) {
-            extractedConditions.push(cleanedCond);
+          const programIdMatch = /(?:programs\.id|submissions\.program_id|program_id)\s*=\s*'([^']+)'/i.exec(cleanedCond);
+          const leaderIdMatch = /(?:leader_category\.id|submissions\.leader_id|leader_id)\s*=\s*'([^']+)'/i.exec(cleanedCond);
+          
+          if (programIdMatch) {
+            extractedConditions.push(`programs.id = '${programIdMatch[1]}'`);
+          } else if (leaderIdMatch) {
+            extractedConditions.push(`leader_category.id = '${leaderIdMatch[1]}'`);
           } else {
             keptConds.push(cleanedCond);
           }
