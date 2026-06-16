@@ -478,6 +478,8 @@ async function publish(dashboardConfig, existingIds = null) {
     console.log(`Dashboard created: ${dashboardId}`);
   }
 
+  // 4. Create/locate sub-collection (Removed: assign directly to dashboard's collection and link via dashboard_id)
+
   // 5. Create or update question cards
   const prevCardIds = existingIds?.cardIds || {};
   const newCardIds = {};
@@ -552,6 +554,7 @@ async function publish(dashboardConfig, existingIds = null) {
       },
       visualization_settings: card.visualization_settings || {},
       collection_id: collectionId,
+      dashboard_id: dashboardId,
     };
 
     let metabaseCardId = prevCardIds[card.id];
