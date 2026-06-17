@@ -3,7 +3,35 @@ import { useSelector } from 'react-redux';
 import { runQuery, listDatabases, getDatabaseMetadata } from '../services/api';
 import { hasMetabaseFilters, toPreviewSql, injectWhereConditions } from '../services/queryPreview';
 
-const DISPLAY_TYPES = ['table', 'bar', 'line', 'pie', 'scalar', 'map', 'area', 'row'];
+const DISPLAY_TYPES = [
+  'table', 'bar', 'line', 'pie', 'scalar', 'map', 'area', 'row',
+  'gauge', 'progress', 'object', 'combo', 'pivot', 'smartscalar',
+  'funnel', 'scatter', 'waterfall'
+];
+
+const VISUALISATION_TYPES = [
+  // Primary charts
+  { type: 'scalar', label: 'Number', icon: '🔢', isPrimary: true },
+  { type: 'gauge', label: 'Gauge', icon: '⏲️', isPrimary: true },
+  { type: 'progress', label: 'Progress', icon: '📊', isPrimary: true },
+  
+  // More charts
+  { type: 'table', label: 'Table', icon: '📋' },
+  { type: 'object', label: 'Detail', icon: '📄' },
+  { type: 'bar', label: 'Bar', icon: '📊' },
+  { type: 'line', label: 'Line', icon: '📈' },
+  { type: 'pie', label: 'Pie', icon: '🥧' },
+  { type: 'row', label: 'Row', icon: '↕️' },
+  { type: 'area', label: 'Area', icon: '📉' },
+  { type: 'combo', label: 'Combo', icon: '📊' },
+  { type: 'pivot', label: 'Pivot Table', icon: '📋' },
+  { type: 'smartscalar', label: 'Trend', icon: '📈' },
+  { type: 'funnel', label: 'Funnel', icon: '⏳' },
+  { type: 'map', label: 'Map', icon: '🗺️' },
+  { type: 'scatter', label: 'Scatter', icon: '🔵' },
+  { type: 'waterfall', label: 'Waterfall', icon: '📶' },
+];
+
 const REPORTING_PERIOD_VALUES = ['Weekly', 'Monthly', 'Quarterly', 'Yearly'];
 
 const extractVariables = (query = '') => {
@@ -66,7 +94,8 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
           const dbs = await listDatabases();
           const dbList = dbs?.data || dbs || [];
           if (dbList.length > 0) {
-            dbId = dbList[0].id;
+            const activeDb = dbList.find(d => d.name === 'test' || d.name === 'mitra5') || dbList[0];
+            dbId = activeDb.id;
             setForm(f => ({ ...f, databaseId: dbId }));
           }
         }
@@ -269,36 +298,35 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
   };
 
   return (
-    <div style={styles.overlay}>
-      <div style={styles.modal}>
-        <div style={styles.header}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            <h3 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: '#0f172a' }}>Edit Dashboard Card</h3>
-            <span style={{ fontSize: 11, color: '#64748b' }}>Configure layout, query details, and parameters</span>
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[1000]">
+      <div className="bg-white rounded-[14px] p-7 w-[780px] max-h-[90vh] overflow-y-auto shadow-[0_12px_40px_rgba(0,0,0,0.18)]">
+        <div className="flex justify-between items-center mb-4">
+          <div className="flex flex-col gap-1">
+            <h3 className="m-0 text-[18px] font-bold text-slate-900">Edit Dashboard Card</h3>
+            <span className="text-[11px] text-slate-500">Configure layout, query details, and parameters</span>
           </div>
-          <button onClick={onClose} style={styles.closeBtn}>✕</button>
+          <button onClick={onClose} className="bg-transparent border-none text-[18px] cursor-pointer text-slate-400 py-1 px-2 rounded-md transition-all duration-150 hover:text-slate-600 hover:bg-slate-100">✕</button>
         </div>
 
         {/* Tab Header */}
-        <div style={styles.tabsHeader}>
+        <div className="flex gap-1.5 border-b-2 border-slate-200 pb-0 mb-4 mt-3">
           {[
             { key: 'query', label: '📝 SQL Query & Preview', disabled: false },
             { key: 'variables', label: `🔍 Variables & Filters`, disabled: variables.length === 0, count: variables.length },
+            { key: 'visualisation', label: '🎨 Visualisation', disabled: false },
             { key: 'layout', label: '📐 Layout & Size', disabled: false },
           ].map(tab => (
             <button
               key={tab.key}
-              style={{
-                ...styles.tabButton,
-                ...(activeTab === tab.key ? styles.tabButtonActive : {}),
-                ...(tab.disabled ? styles.tabButtonDisabled : {}),
-              }}
+              className={`bg-transparent border-none border-b-[3px] py-2.5 px-4 cursor-pointer text-[13px] font-semibold flex items-center gap-1.5 rounded-t-md transition-all duration-150
+                ${activeTab === tab.key ? 'text-indigo-600 border-indigo-600 bg-indigo-50' : 'border-transparent text-slate-500 hover:text-slate-700 hover:bg-slate-50'}
+                ${tab.disabled ? 'text-slate-300 cursor-not-allowed opacity-50 hover:text-slate-300 hover:bg-transparent' : ''}`}
               onClick={() => !tab.disabled && setActiveTab(tab.key)}
               disabled={tab.disabled}
               title={tab.disabled ? 'No SQL variables detected in the query' : ''}
             >
               {tab.label}
-              {tab.count > 0 && <span style={styles.badgeCount}>{tab.count}</span>}
+              {tab.count > 0 && <span className="bg-indigo-600 text-white text-[10px] font-bold py-0.5 px-1.5 rounded-full min-w-[16px] text-center">{tab.count}</span>}
             </button>
           ))}
         </div>
@@ -306,42 +334,42 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
         {/* Tab 1: SQL Query & Preview */}
         {activeTab === 'query' && (
           <div>
-            <label style={styles.label}>Card Title</label>
-            <input style={styles.input} value={form.title} onChange={e => set('title', e.target.value)} placeholder="e.g. User Registrations" />
+            <label className="block text-[12px] font-semibold text-slate-700 mb-1 mt-3.5">Card Title</label>
+            <input className="w-full py-2 px-3 border border-slate-300 rounded-md text-[13px] box-border outline-none transition-all duration-150 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" value={form.title} onChange={e => set('title', e.target.value)} placeholder="e.g. User Registrations" />
 
-            <label style={styles.label}>Display Type</label>
-            <select style={styles.input} value={form.type} onChange={e => set('type', e.target.value)}>
+            <label className="block text-[12px] font-semibold text-slate-700 mb-1 mt-3.5">Display Type</label>
+            <select className="w-full py-2 px-3 border border-slate-300 rounded-md text-[13px] box-border outline-none transition-all duration-150 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" value={form.type} onChange={e => set('type', e.target.value)}>
               {DISPLAY_TYPES.map(t => <option key={t} value={t}>{t.toUpperCase()}</option>)}
             </select>
 
-            <label style={styles.label}>SQL Query</label>
+            <label className="block text-[12px] font-semibold text-slate-700 mb-1 mt-3.5">SQL Query</label>
             {hasMetabaseFilters(form.query) && (
-              <div style={styles.hintBox}>
+              <div className="mb-2 py-2 px-3 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800 text-[12px] leading-relaxed">
                 ℹ️ Metabase filters are active. Preview execution ignores optional <code>[[...]]</code> clauses and treats variables as <code>NULL</code>.
               </div>
             )}
             {whereConditions.length > 0 && (
-              <div style={{ ...styles.hintBox, background: '#f1f5f9', border: '1px solid #e2e8f0', color: '#334155', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                <span style={{ fontWeight: 700, fontSize: 11, color: '#475569', textTransform: 'uppercase' }}>Active Global WHERE Conditions:</span>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              <div className="mb-2 py-2 px-3 bg-slate-100 border border-slate-200 rounded-lg text-slate-700 text-[12px] leading-relaxed flex flex-col gap-1">
+                <span className="font-bold text-[11px] text-slate-500 uppercase">Active Global WHERE Conditions:</span>
+                <div className="flex flex-wrap gap-1.5">
                   {whereConditions.map((cond, i) => (
-                    <span key={i} style={{ background: '#e2e8f0', padding: '2px 8px', borderRadius: 4, fontSize: 11, fontFamily: 'monospace' }}>
+                    <span key={i} className="bg-slate-200 px-2 py-0.5 rounded text-[11px] font-mono">
                       {cond}
                     </span>
                   ))}
                 </div>
               </div>
             )}
-            <div style={{ position: 'relative', marginTop: 6 }}>
+            <div className="relative mt-1.5">
               <textarea
-                style={{ ...styles.input, height: 160, fontFamily: 'monospace', fontSize: 12, paddingBottom: 40, lineHeight: 1.5, background: '#fafbfc' }}
+                className="w-full py-2 px-3 border border-slate-300 rounded-md box-border outline-none transition-all duration-150 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 h-[160px] font-mono text-[12px] pb-10 leading-normal bg-[#fafbfc]"
                 value={form.query}
                 onChange={e => set('query', e.target.value)}
                 placeholder="SELECT column FROM table WHERE column = {{variable}}"
                 onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') handleRunQuery(); }}
               />
               <button
-                style={styles.runBtn}
+                className="absolute bottom-2 right-2 py-1.5 px-3.5 bg-gradient-to-br from-emerald-500 to-emerald-600 text-white border-none rounded-md cursor-pointer text-[12px] font-bold shadow-[0_2px_6px_rgba(16,185,129,0.3)] transition-all duration-150 hover:from-emerald-600 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
                 onClick={handleRunQuery}
                 disabled={running || !form.query.trim()}
               >
@@ -351,49 +379,47 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
 
             {/* Query Results */}
             {queryError && (
-              <div style={styles.errorBox}>{queryError}</div>
+              <div className="mt-2 py-2.5 px-3.5 bg-red-50 border border-red-200 rounded-lg text-red-800 text-[12px]">{queryError}</div>
             )}
             {queryResult && (
-              <div style={styles.resultBox}>
-                <div style={styles.resultMeta}>
+              <div className="mt-2 border border-slate-200 rounded-lg overflow-hidden">
+                <div className="py-2 px-3 bg-slate-50 text-[11px] text-slate-500 border-b border-slate-200 font-semibold">
                   Returned {queryResult.rows.length} row{queryResult.rows.length !== 1 ? 's' : ''}
                 </div>
-                <div style={styles.tableWrap}>
-                  <table style={styles.table}>
+                <div className="overflow-x-auto max-h-[220px] overflow-y-auto">
+                  <table className="w-full border-collapse text-[12px]">
                     <thead>
                       <tr>
                         {queryResult.columns.map((col, i) => (
-                          <th key={i} style={styles.th}>{col}</th>
+                          <th key={i} className="py-1.5 px-2.5 bg-slate-100 border-b border-slate-200 text-left font-semibold text-slate-700 whitespace-nowrap">{col}</th>
                         ))}
                       </tr>
                     </thead>
                     <tbody>
                       {queryResult.rows.slice(0, 10).map((row, i) => (
-                        <tr key={i} style={i % 2 === 0 ? {} : { background: '#f8f9fa' }}>
+                        <tr key={i} className={i % 2 === 0 ? '' : 'bg-slate-50'}>
                           {row.map((cell, j) => (
-                            <td key={j} style={styles.td}>{cell === null ? <span style={{ color: '#adb5bd', fontStyle: 'italic' }}>null</span> : String(cell)}</td>
+                            <td key={j} className="py-[5px] px-[10px] border-b border-slate-100 text-slate-900 whitespace-nowrap">{cell === null ? <span className="text-slate-400 italic">null</span> : String(cell)}</td>
                           ))}
                         </tr>
                       ))}
                     </tbody>
                   </table>
                   {queryResult.rows.length > 10 && (
-                    <div style={styles.moreRows}>… and {queryResult.rows.length - 10} more rows</div>
+                    <div className="py-1.5 px-2.5 text-[11px] text-slate-500 bg-slate-50 text-center font-medium">… and {queryResult.rows.length - 10} more rows</div>
                   )}
                 </div>
               </div>
             )}
           </div>
         )}
-
-        {/* Tab 2: Variables & Field Filters */}
         {activeTab === 'variables' && variables.length > 0 && (
-          <div style={styles.mappingBox}>
-            <label style={{ ...styles.label, marginTop: 0, fontSize: 14, fontWeight: 700 }}>SQL Variable Settings & Filter Mappings</label>
-            <p style={{ margin: '4px 0 14px 0', fontSize: 12, color: '#64748b', lineHeight: 1.4 }}>
+          <div className="mt-0 p-0">
+            <label className="block text-[14px] font-bold text-slate-700 mb-1 mt-0">SQL Variable Settings & Filter Mappings</label>
+            <p className="m-0 mb-3.5 text-[12px] text-slate-500 leading-normal">
               Map SQL template variables (e.g. <code>{"{{variable}}"}</code>) to dashboard filters, and configure their database dimensions.
             </p>
-            <div style={styles.mappingGrid}>
+            <div className="flex flex-col gap-2 mt-2">
               {variables.map(variable => {
                 const currentTag = (form.templateTags || {})[variable] || {
                   id: variable,
@@ -416,21 +442,21 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                 const typeLabel = getVarTypeLabel(currentTag);
 
                 return (
-                  <div key={variable} style={{ ...styles.variableConfigCard, borderLeft: `4px solid ${accentColor}` }}>
+                  <div key={variable} className="bg-white border border-slate-200 rounded-[10px] p-3.5 mb-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.04)] transition-all duration-150" style={{ borderLeft: `4px solid ${accentColor}` }}>
                     {/* Step 1: Variable Badge */}
-                    <div style={styles.variableConfigHeader}>
-                      <span style={styles.variableBadge}>{"{{" } {variable} {"}}"}</span>
+                    <div className="flex justify-between items-center mb-2.5 border-b border-slate-100 pb-2">
+                      <span className="text-[12px] font-mono font-bold text-indigo-600 bg-indigo-50 py-0.5 px-2 rounded-md border border-indigo-200">{"{{" } {variable} {"}}"}</span>
                       <span style={{ fontSize: 11, color: accentColor, fontWeight: 600 }}>
                         {typeLabel}
                       </span>
                     </div>
                     
                     {/* Step 2: Configuration */}
-                    <div style={styles.variableConfigGrid}>
+                    <div className="grid grid-cols-2 gap-2.5">
                       <div>
-                        <span style={styles.miniLabel}>⚙️ Variable Type</span>
+                        <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 mt-1 tracking-wider">⚙️ Variable Type</span>
                         <select
-                          style={styles.mappingSelect}
+                          className="flex-1 py-1.5 px-2 border border-slate-300 rounded-md text-[12px] min-w-[100px] bg-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 w-full"
                           value={currentTag.type || 'text'}
                           onChange={e => handleTagPropertyChange(variable, 'type', e.target.value)}
                         >
@@ -443,9 +469,9 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
 
                       {/* Step 3: Dashboard Mapping */}
                       <div>
-                        <span style={styles.miniLabel}>🔗 Dashboard Filter</span>
+                        <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 mt-1 tracking-wider">🔗 Dashboard Filter</span>
                         <select
-                          style={styles.mappingSelect}
+                          className="flex-1 py-1.5 px-2 border border-slate-300 rounded-md text-[12px] min-w-[100px] bg-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 w-full"
                           value={currentFilterId}
                           onChange={e => handleMapFilter(variable, e.target.value)}
                         >
@@ -460,13 +486,13 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
 
                       {currentTag.type === 'dimension' ? (
                         <>
-                          <div style={{ gridColumn: 'span 2' }}>
-                            <span style={styles.miniLabel}>Maps to Field (Dimension)</span>
+                          <div className="col-span-2">
+                            <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 mt-1 tracking-wider">Maps to Field (Dimension)</span>
                             {loadingMetadata ? (
-                              <div style={{ fontSize: 12, color: '#868e96', padding: '4px 0' }}>⏳ Loading database metadata…</div>
+                              <div className="text-[12px] text-slate-400 py-1">⏳ Loading database metadata…</div>
                             ) : (
                               <select
-                                style={styles.mappingSelect}
+                                className="flex-1 py-1.5 px-2 border border-slate-300 rounded-md text-[12px] min-w-[100px] bg-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 w-full"
                                 value={selectedFieldId}
                                 onChange={e => {
                                   const fieldId = e.target.value ? parseInt(e.target.value, 10) : null;
@@ -491,10 +517,10 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                             )}
                           </div>
                           
-                          <div style={{ gridColumn: 'span 2' }}>
-                            <span style={styles.miniLabel}>Filter Widget Type</span>
+                          <div className="col-span-2">
+                            <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 mt-1 tracking-wider">Filter Widget Type</span>
                             <select
-                              style={styles.mappingSelect}
+                              className="flex-1 py-1.5 px-2 border border-slate-300 rounded-md text-[12px] min-w-[100px] bg-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 w-full"
                               value={currentTag['widget-type'] || 'category'}
                               onChange={e => handleTagPropertyChange(variable, 'widget-type', e.target.value)}
                             >
@@ -513,9 +539,9 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                       ) : (
                         <>
                           <div>
-                            <span style={styles.miniLabel}>Widget Type</span>
+                            <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 mt-1 tracking-wider">Widget Type</span>
                             <select
-                              style={styles.mappingSelect}
+                              className="flex-1 py-1.5 px-2 border border-slate-300 rounded-md text-[12px] min-w-[100px] bg-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 w-full"
                               value={currentTag.values_source_type === 'static-list' ? 'dropdown' : 'input'}
                               onChange={e => {
                                 const isDropdown = e.target.value === 'dropdown';
@@ -533,9 +559,9 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                             </select>
                           </div>
                           <div>
-                            <span style={styles.miniLabel}>Default Value</span>
+                            <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 mt-1 tracking-wider">Default Value</span>
                             <input
-                              style={styles.mappingSelect}
+                              className="flex-1 py-1.5 px-2 border border-slate-300 rounded-md text-[12px] min-w-[100px] bg-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 w-full"
                               value={currentTag.default || ''}
                               placeholder="e.g. Monthly"
                               onChange={e => handleTagPropertyChange(variable, 'default', e.target.value || null)}
@@ -543,16 +569,16 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                           </div>
 
                           {currentTag.values_source_type === 'static-list' && (
-                            <div style={{ gridColumn: 'span 2', marginTop: 10, borderTop: '1px dashed #e2e8f0', paddingTop: 8 }}>
-                              <span style={{ fontSize: 10, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 6, textTransform: 'uppercase' }}>
+                            <div className="col-span-2 mt-2.5 border-t border-dashed border-slate-200 pt-2">
+                              <span className="text-[10px] font-bold text-slate-500 block mb-1.5 uppercase">
                                 Static Options List
                               </span>
-                              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+                              <div className="flex flex-wrap gap-1 mb-2">
                                 {(currentTag.values_source_config?.values || []).map((val, idx) => (
-                                  <span key={idx} style={styles.staticOptionBadge}>
+                                  <span key={idx} className="inline-flex items-center gap-1 bg-indigo-50 text-indigo-800 py-0.5 px-2 rounded-md text-[11px] font-semibold border border-indigo-200">
                                     {val}
                                     <span 
-                                      style={styles.deleteBadgeCross} 
+                                      className="cursor-pointer text-indigo-600 font-bold text-[10px] ml-1 hover:text-indigo-800" 
                                       onClick={() => {
                                         const newValues = (currentTag.values_source_config?.values || []).filter((_, i) => i !== idx);
                                         const existingTags = { ...(form.templateTags || {}) };
@@ -571,12 +597,12 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                                   </span>
                                 ))}
                                 {(currentTag.values_source_config?.values || []).length === 0 && (
-                                  <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>No options added yet</span>
+                                  <span className="text-[11px] text-slate-400 italic">No options added yet</span>
                                 )}
                               </div>
-                              <div style={{ display: 'flex', gap: 4 }}>
+                              <div className="flex gap-1">
                                 <input
-                                  style={styles.mappingSelect}
+                                  className="flex-1 py-1.5 px-2 border border-slate-300 rounded-md text-[12px] min-w-[100px] bg-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
                                   placeholder="New option..."
                                   onKeyDown={e => {
                                     if (e.key === 'Enter') {
@@ -601,7 +627,7 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                                   }}
                                 />
                                 <button
-                                  style={{ ...styles.addBtn, padding: '4px 8px' }}
+                                  className="py-1 px-2 bg-indigo-600 text-white border-none rounded-md cursor-pointer font-bold text-[12px] transition-all duration-150 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                   onClick={e => {
                                     const input = e.target.previousSibling;
                                     const val = input.value.trim();
@@ -631,21 +657,8 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                       )}
                       
                       {currentFilterId && (
-                        <div style={{ gridColumn: 'span 2', marginTop: 8, borderTop: '1px dashed #e2e8f0', paddingTop: 8 }}>
-                          <label style={{
-                            fontSize: 12,
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: 8,
-                            cursor: 'pointer',
-                            fontWeight: 500,
-                            color: '#334155',
-                            padding: '6px 10px',
-                            borderRadius: 6,
-                            background: (form.inlineParameters || []).includes(currentFilterId) ? '#eef2ff' : '#f8fafc',
-                            border: `1px solid ${(form.inlineParameters || []).includes(currentFilterId) ? '#c7d2fe' : '#e2e8f0'}`,
-                            transition: 'all 0.15s',
-                          }}>
+                        <div className="col-span-2 mt-2 border-t border-dashed border-slate-200 pt-2">
+                          <label className={`text-[12px] flex items-center gap-2 cursor-pointer font-medium text-slate-700 py-1.5 px-2.5 rounded-md border transition-all duration-150 ${(form.inlineParameters || []).includes(currentFilterId) ? 'bg-indigo-50 border-indigo-200' : 'bg-slate-50 border-slate-200'}`}>
                             <input
                               type="checkbox"
                               checked={(form.inlineParameters || []).includes(currentFilterId)}
@@ -671,11 +684,11 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
             </div>
 
             {/* Question-Specific Filters Section */}
-            <div style={{ marginTop: 20, borderTop: '2px solid #e2e8f0', paddingTop: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div className="mt-5 border-t-2 border-slate-200 pt-4">
+              <div className="flex justify-between items-center mb-2">
                 <div>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: '#0f172a' }}>➕ Question-Specific Filters</span>
-                  <span style={{ display: 'block', fontSize: 11, color: '#64748b', marginTop: 2 }}>
+                  <span className="text-[13px] font-bold text-slate-900">➕ Question-Specific Filters</span>
+                  <span className="block text-[11px] text-slate-500 mt-0.5">
                     Filters specific to this question only (not shown as dashboard filters)
                   </span>
                 </div>
@@ -683,22 +696,22 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
 
               {/* Existing question-only variables */}
               {questionOnlyVars.map(([name, tag]) => (
-                <div key={name} style={{ ...styles.variableConfigCard, borderLeft: '4px solid #f59e0b', background: '#fffbeb' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-                    <span style={{ ...styles.variableBadge, background: '#fef3c7', color: '#92400e' }}>{"{{" } {name} {"}}"}</span>
+                <div key={name} className="bg-amber-50 border border-slate-200 rounded-[10px] p-3.5 mb-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.04)] transition-all duration-150 border-l-4 border-l-amber-500">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-[12px] font-mono font-bold py-0.5 px-2 rounded-md border bg-amber-100 text-amber-800 border-amber-200">{"{{" } {name} {"}}"}</span>
                     <button
-                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#94a3b8', fontSize: 13 }}
+                      className="bg-transparent border-none cursor-pointer text-slate-400 text-[13px] hover:text-slate-600"
                       onClick={() => handleRemoveQuestionFilter(name)}
                       title="Remove question filter"
                     >
                       ✕
                     </button>
                   </div>
-                  <div style={styles.variableConfigGrid}>
+                  <div className="grid grid-cols-2 gap-2.5">
                     <div>
-                      <span style={styles.miniLabel}>Widget Type</span>
+                      <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 mt-1 tracking-wider">Widget Type</span>
                       <select
-                        style={styles.mappingSelect}
+                        className="flex-1 py-1.5 px-2 border border-slate-300 rounded-md text-[12px] min-w-[100px] bg-white outline-none w-full"
                         value={tag.values_source_type === 'static-list' ? 'dropdown' : 'input'}
                         onChange={e => {
                           const isDropdown = e.target.value === 'dropdown';
@@ -716,25 +729,25 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                       </select>
                     </div>
                     <div>
-                      <span style={styles.miniLabel}>Default Value</span>
+                      <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 mt-1 tracking-wider">Default Value</span>
                       <input
-                        style={styles.mappingSelect}
+                        className="flex-1 py-1.5 px-2 border border-slate-300 rounded-md text-[12px] min-w-[100px] bg-white outline-none w-full"
                         value={tag.default || ''}
                         placeholder="e.g. Monthly"
                         onChange={e => handleTagPropertyChange(name, 'default', e.target.value || null)}
                       />
                     </div>
                     {tag.values_source_type === 'static-list' && (
-                      <div style={{ gridColumn: 'span 2', marginTop: 8, borderTop: '1px dashed #fde68a', paddingTop: 8 }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: '#92400e', display: 'block', marginBottom: 6, textTransform: 'uppercase' }}>
+                      <div className="col-span-2 mt-2 border-t border-dashed border-amber-200 pt-2">
+                        <span className="text-[10px] font-bold text-amber-800 block mb-1.5 uppercase">
                           Static Options
                         </span>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 8 }}>
+                        <div className="flex flex-wrap gap-1 mb-2">
                           {(tag.values_source_config?.values || []).map((val, idx) => (
-                            <span key={idx} style={{ ...styles.staticOptionBadge, background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a' }}>
+                            <span key={idx} className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 py-0.5 px-2 rounded-md text-[11px] font-semibold border border-amber-200">
                               {val}
                               <span
-                                style={{ ...styles.deleteBadgeCross, color: '#b45309' }}
+                                className="cursor-pointer text-amber-700 font-bold text-[10px] ml-1 hover:text-amber-900"
                                 onClick={() => {
                                   const newValues = (tag.values_source_config?.values || []).filter((_, i) => i !== idx);
                                   const existingTags = { ...(form.templateTags || {}) };
@@ -747,12 +760,12 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                             </span>
                           ))}
                           {(tag.values_source_config?.values || []).length === 0 && (
-                            <span style={{ fontSize: 11, color: '#b45309', fontStyle: 'italic' }}>No options yet</span>
+                            <span className="text-[11px] text-amber-700 italic">No options yet</span>
                           )}
                         </div>
-                        <div style={{ display: 'flex', gap: 4 }}>
+                        <div className="flex gap-1">
                           <input
-                            style={styles.mappingSelect}
+                            className="flex-1 py-1.5 px-2 border border-slate-300 rounded-md text-[12px] min-w-[100px] bg-white outline-none"
                             placeholder="New option..."
                             onKeyDown={e => {
                               if (e.key === 'Enter') {
@@ -771,7 +784,7 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                             }}
                           />
                           <button
-                            style={{ ...styles.addBtn, padding: '4px 8px' }}
+                            className="py-1 px-2 bg-indigo-600 text-white border-none rounded-md cursor-pointer font-bold text-[12px] transition-all duration-150 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
                             onClick={e => {
                               const input = e.target.previousSibling;
                               const val = input.value.trim();
@@ -796,19 +809,14 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
               ))}
 
               {/* Quick Templates */}
-              <div style={{ marginTop: 8, marginBottom: 4 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: '#64748b', textTransform: 'uppercase', letterSpacing: '0.03em' }}>
+              <div className="mt-2 mb-1">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">
                   Quick Templates
                 </span>
-                <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                <div className="flex gap-1.5 mt-1.5 flex-wrap">
                   {!hasReportingPeriodDropdown && (
                     <button
-                      style={{
-                        padding: '6px 12px', border: '1px solid #fde68a', borderRadius: 8,
-                        background: '#fffbeb', cursor: 'pointer', fontSize: 11, fontWeight: 600,
-                        color: '#92400e', display: 'flex', alignItems: 'center', gap: 4,
-                        transition: 'all 0.15s',
-                      }}
+                      className="py-1.5 px-3 border border-amber-200 rounded-lg bg-amber-50 cursor-pointer text-[11px] font-semibold text-amber-800 flex items-center gap-1 transition-all duration-150 hover:bg-amber-100"
                       onClick={() => {
                         const slug = 'reporting_period';
                         const existingTags = { ...(form.templateTags || {}) };
@@ -837,7 +845,7 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                     </button>
                   )}
                   {hasReportingPeriodDropdown && (
-                    <span style={{ fontSize: 11, color: '#059669', fontWeight: 600, padding: '6px 12px', background: '#ecfdf5', borderRadius: 8, border: '1px solid #a7f3d0' }}>
+                    <span className="text-[11px] text-emerald-600 font-semibold py-1.5 px-3 bg-emerald-50 rounded-lg border border-emerald-200">
                       ✅ Reporting Period dropdown ready
                     </span>
                   )}
@@ -847,29 +855,29 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
               {/* Add Question Filter Form */}
               {!showQFilterForm ? (
                 <button
-                  style={{ ...styles.addBtn, width: '100%', marginTop: 8, background: '#92400e' }}
+                  className="py-1.5 px-3 bg-amber-800 text-white border-none rounded-md cursor-pointer font-bold text-[12px] transition-all duration-150 hover:bg-amber-950 w-full mt-2"
                   onClick={() => setShowQFilterForm(true)}
                 >
                   + Add Custom Question Filter
                 </button>
               ) : (
-                <div style={{ border: '1px solid #fde68a', borderRadius: 8, padding: 12, marginTop: 8, background: '#fffbeb' }}>
-                  <span style={{ fontSize: 12, fontWeight: 700, display: 'block', marginBottom: 8, color: '#92400e' }}>
+                <div className="border border-amber-200 rounded-lg p-3 mt-2 bg-amber-50">
+                  <span className="text-[12px] font-bold block mb-2 text-amber-800">
                     New Question-Specific Filter
                   </span>
-                  <div style={{ marginBottom: 8 }}>
-                    <span style={styles.miniLabel}>Filter Name</span>
+                  <div className="mb-2">
+                    <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 mt-1 tracking-wider">Filter Name</span>
                     <input
-                      style={styles.mappingSelect}
+                      className="flex-1 py-1.5 px-2 border border-slate-300 rounded-md text-[12px] min-w-[100px] bg-white outline-none w-full"
                       value={qFilterName}
                       placeholder="e.g. Reporting Period"
                       onChange={e => setQFilterName(e.target.value)}
                     />
                   </div>
-                  <div style={{ marginBottom: 10 }}>
-                    <span style={styles.miniLabel}>Widget Type</span>
+                  <div className="mb-2.5">
+                    <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 mt-1 tracking-wider">Widget Type</span>
                     <select
-                      style={styles.mappingSelect}
+                      className="flex-1 py-1.5 px-2 border border-slate-300 rounded-md text-[12px] min-w-[100px] bg-white outline-none w-full"
                       value={qFilterWidget}
                       onChange={e => setQFilterWidget(e.target.value)}
                     >
@@ -877,15 +885,15 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                       <option value="dropdown">Dropdown</option>
                     </select>
                   </div>
-                  <div style={{ display: 'flex', gap: 6 }}>
+                  <div className="flex gap-1.5">
                     <button
-                      style={{ ...styles.addBtn, flex: 1, background: '#64748b' }}
+                      className="py-1.5 px-3 bg-slate-500 text-white border-none rounded-md cursor-pointer font-bold text-[12px] transition-all duration-150 hover:bg-slate-600 flex-1"
                       onClick={() => { setShowQFilterForm(false); setQFilterName(''); }}
                     >
                       Cancel
                     </button>
                     <button
-                      style={{ ...styles.addBtn, flex: 1, background: '#92400e' }}
+                      className="py-1.5 px-3 bg-amber-800 text-white border-none rounded-md cursor-pointer font-bold text-[12px] transition-all duration-150 hover:bg-amber-900 flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
                       onClick={handleAddQuestionFilter}
                       disabled={!qFilterName}
                     >
@@ -898,29 +906,97 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
           </div>
         )}
 
+        {/* Tab 2: Visualisation */}
+        {activeTab === 'visualisation' && (
+          <div className="mt-2.5">
+            <div className="text-[12px] font-semibold text-slate-700 mb-3">Choose how to visualize this query:</div>
+            
+            {/* Primary Visualisations Grid */}
+            <div className="grid grid-cols-3 gap-3 mb-5">
+              {VISUALISATION_TYPES.filter(v => v.isPrimary).map(v => {
+                const isSelected = form.type === v.type;
+                return (
+                  <button
+                    key={v.type}
+                    type="button"
+                    onClick={() => set('type', v.type)}
+                    className={`flex flex-col items-center justify-center p-4 rounded-xl border-2 cursor-pointer transition-all duration-150 text-center select-none bg-white w-full box-border
+                      ${isSelected 
+                        ? 'border-indigo-600 bg-indigo-50/20 text-indigo-700 font-bold shadow-[0_2px_8px_rgba(79,70,229,0.15)]' 
+                        : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
+                  >
+                    <span className="text-3xl mb-1.5">{v.icon}</span>
+                    <span className="text-[12px] font-bold tracking-tight">{v.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Divider / MORE CHARTS label */}
+            <div className="flex items-center gap-2 mb-4 mt-1">
+              <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider">MORE CHARTS</span>
+              <div className="flex-1 h-[1px] bg-slate-200"></div>
+            </div>
+
+            {/* Other Visualisations Grid (4 columns) */}
+            <div className="grid grid-cols-4 gap-3 max-h-[260px] overflow-y-auto pr-1">
+              {VISUALISATION_TYPES.filter(v => !v.isPrimary).map(v => {
+                const isSelected = form.type === v.type;
+                return (
+                  <button
+                    key={v.type}
+                    type="button"
+                    onClick={() => set('type', v.type)}
+                    className={`flex flex-col items-center justify-center p-3.5 rounded-xl border-2 cursor-pointer transition-all duration-150 text-center select-none bg-white w-full box-border
+                      ${isSelected 
+                        ? 'border-indigo-600 bg-indigo-50/20 text-indigo-700 font-bold shadow-[0_2px_8px_rgba(79,70,229,0.15)]' 
+                        : 'border-slate-200 text-slate-600 hover:border-slate-300 hover:bg-slate-50'}`}
+                  >
+                    <span className="text-2xl mb-1">{v.icon}</span>
+                    <span className="text-[11px] font-bold tracking-tight">{v.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Current Selection Status Footer */}
+            <div className="mt-5 p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
+              <div className="flex flex-col gap-0.5">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active Visualisation</span>
+                <span className="text-sm font-extrabold text-indigo-600">
+                  {VISUALISATION_TYPES.find(v => v.type === form.type)?.label || form.type?.toUpperCase()}
+                </span>
+              </div>
+              <span className="text-2xl bg-white border border-slate-200 p-2.5 rounded-xl shadow-sm leading-none flex items-center justify-center">
+                {VISUALISATION_TYPES.find(v => v.type === form.type)?.icon || '📊'}
+              </span>
+            </div>
+          </div>
+        )}
+
         {/* Tab 3: Layout & Size */}
         {activeTab === 'layout' && (
           <div>
-            <label style={styles.label}>Card Dimensions (columns × rows)</label>
-            <div style={{ display: 'flex', gap: 8, marginTop: 6 }}>
+            <label className="block text-[12px] font-semibold text-slate-700 mb-1 mt-3.5">Card Dimensions (columns × rows)</label>
+            <div className="flex gap-2 mt-1.5">
               <div>
-                <span style={styles.miniLabel}>Width (Grid Cols)</span>
-                <input style={{ ...styles.input, width: 100 }} type="number" min={1} max={24} value={form.sizeX}
+                <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 mt-1 tracking-wider">Width (Grid Cols)</span>
+                <input className="w-[100px] py-2 px-3 border border-slate-300 rounded-md text-[13px] box-border outline-none transition-all duration-150 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" type="number" min={1} max={24} value={form.sizeX}
                   onChange={e => set('sizeX', parseInt(e.target.value))} placeholder="Width" />
               </div>
               <div>
-                <span style={styles.miniLabel}>Height (Grid Rows)</span>
-                <input style={{ ...styles.input, width: 100 }} type="number" min={1} max={20} value={form.sizeY}
+                <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 mt-1 tracking-wider">Height (Grid Rows)</span>
+                <input className="w-[100px] py-2 px-3 border border-slate-300 rounded-md text-[13px] box-border outline-none transition-all duration-150 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" type="number" min={1} max={20} value={form.sizeY}
                   onChange={e => set('sizeY', parseInt(e.target.value))} placeholder="Height" />
               </div>
             </div>
 
             {hasMetabaseDetails && (
-              <div style={{ marginTop: 20 }}>
-                <label style={styles.label}>Metabase Link & Metadata Details</label>
-                <div style={styles.detailBox}>
-                  {form.description && <div style={styles.detailDescription}>{form.description}</div>}
-                  <div style={styles.detailGrid}>
+              <div className="mt-5">
+                <label className="block text-[12px] font-semibold text-slate-700 mb-1 mt-3.5">Metabase Link & Metadata Details</label>
+                <div className="mt-3 p-3.5 border border-slate-200 rounded-[10px] bg-slate-50">
+                  {form.description && <div className="mb-2.5 text-slate-600 text-[12px] leading-relaxed">{form.description}</div>}
+                  <div className="grid grid-cols-2 gap-2.5">
                     <Detail label="Card ID" value={form.metabaseCardId} />
                     <Detail label="Dashcard ID" value={form.metabaseDashcardId} />
                     <Detail label="Database ID" value={form.databaseId} />
@@ -934,9 +1010,9 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
           </div>
         )}
 
-        <div style={styles.footer}>
-          <button style={styles.cancelBtn} onClick={onClose}>Cancel</button>
-          <button style={styles.saveBtn} onClick={() => onSave(form)}>Save Card</button>
+        <div className="flex justify-end gap-2.5 mt-6 border-t border-slate-200 pt-4">
+          <button className="py-[9px] px-[20px] border border-slate-300 rounded-lg bg-white cursor-pointer text-[13px] font-semibold text-slate-600 transition-all duration-150 hover:bg-slate-50 hover:text-slate-800" onClick={onClose}>Cancel</button>
+          <button className="py-[9px] px-[20px] border-none rounded-lg bg-gradient-to-br from-indigo-500 to-indigo-600 text-white cursor-pointer font-bold text-[13px] shadow-[0_2px_8px_rgba(79,70,229,0.25)] transition-all duration-150 hover:from-indigo-600 hover:to-indigo-700" onClick={() => onSave(form)}>Save Card</button>
         </div>
       </div>
     </div>
@@ -947,123 +1023,8 @@ function Detail({ label, value }) {
   if (value === undefined || value === null || value === '') return null;
   return (
     <div>
-      <span style={styles.detailLabel}>{label}</span>
-      <span style={styles.detailValue}>{value}</span>
+      <span className="block text-slate-400 text-[10px] font-bold uppercase">{label}</span>
+      <span className="block text-slate-900 text-[12px] overflow-hidden text-ellipsis whitespace-nowrap">{value}</span>
     </div>
   );
 }
-
-const styles = {
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
-  modal: { background: '#fff', borderRadius: 14, padding: 28, width: 780, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 12px 40px rgba(0,0,0,0.18)' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 },
-  closeBtn: { background: 'none', border: 'none', fontSize: 18, cursor: 'pointer', color: '#94a3b8', padding: '4px 8px', borderRadius: 6, transition: 'all 0.15s' },
-  label: { display: 'block', fontSize: 12, fontWeight: 600, color: '#334155', marginBottom: 4, marginTop: 14 },
-  input: { width: '100%', padding: '8px 12px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 13, boxSizing: 'border-box', outline: 'none', transition: 'all 0.15s' },
-  detailBox: { marginTop: 12, padding: 14, border: '1px solid #e2e8f0', borderRadius: 10, background: '#f8fafc' },
-  detailDescription: { marginBottom: 10, color: '#475569', fontSize: 12, lineHeight: 1.4 },
-  detailGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: 10 },
-  detailLabel: { display: 'block', color: '#94a3b8', fontSize: 10, fontWeight: 700, textTransform: 'uppercase' },
-  detailValue: { display: 'block', color: '#0f172a', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  hintBox: { marginBottom: 8, padding: '8px 12px', background: '#fefce8', border: '1px solid #fde68a', borderRadius: 8, color: '#713f12', fontSize: 12, lineHeight: 1.4 },
-  runBtn: {
-    position: 'absolute', bottom: 8, right: 8,
-    padding: '6px 14px', background: 'linear-gradient(135deg, #10b981, #059669)', color: '#fff',
-    border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 12, fontWeight: 700,
-    boxShadow: '0 2px 6px rgba(16,185,129,0.3)', transition: 'all 0.15s',
-  },
-  errorBox: { marginTop: 8, padding: '10px 14px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, color: '#991b1b', fontSize: 12 },
-  resultBox: { marginTop: 8, border: '1px solid #e2e8f0', borderRadius: 8, overflow: 'hidden' },
-  resultMeta: { padding: '8px 12px', background: '#f8fafc', fontSize: 11, color: '#64748b', borderBottom: '1px solid #e2e8f0', fontWeight: 600 },
-  tableWrap: { overflowX: 'auto', maxHeight: 220, overflowY: 'auto' },
-  table: { width: '100%', borderCollapse: 'collapse', fontSize: 12 },
-  th: { padding: '6px 10px', background: '#f1f5f9', borderBottom: '1px solid #e2e8f0', textAlign: 'left', fontWeight: 600, color: '#334155', whiteSpace: 'nowrap' },
-  td: { padding: '5px 10px', borderBottom: '1px solid #f1f5f9', color: '#0f172a', whiteSpace: 'nowrap' },
-  moreRows: { padding: '6px 10px', fontSize: 11, color: '#64748b', background: '#f8fafc', textAlign: 'center', fontWeight: 500 },
-  footer: { display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 24, borderTop: '1px solid #e2e8f0', paddingTop: 16 },
-  cancelBtn: { padding: '9px 20px', border: '1px solid #cbd5e1', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#475569', transition: 'all 0.15s' },
-  saveBtn: { padding: '9px 20px', border: 'none', borderRadius: 8, background: 'linear-gradient(135deg, #4f46e5, #4338ca)', color: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: 13, boxShadow: '0 2px 8px rgba(79,70,229,0.25)', transition: 'all 0.15s' },
-  mappingBox: { marginTop: 0, padding: 0 },
-  mappingGrid: { display: 'flex', flexDirection: 'column', gap: 8, marginTop: 8 },
-  mappingRow: { display: 'flex', alignItems: 'center', gap: 10, background: '#fff', border: '1px solid #dee2e6', borderRadius: 6, padding: '6px 10px' },
-  variableBadge: { fontSize: 12, fontFamily: 'monospace', fontWeight: 700, color: '#4f46e5', background: '#eef2ff', padding: '3px 8px', borderRadius: 5, border: '1px solid #c7d2fe' },
-  mappingSelect: { flex: 1, padding: '6px 8px', border: '1px solid #cbd5e1', borderRadius: 6, fontSize: 12, minWidth: 100, background: '#fff', outline: 'none' },
-  variableConfigCard: {
-    background: '#fff',
-    border: '1px solid #e2e8f0',
-    borderRadius: 10,
-    padding: 14,
-    marginBottom: 10,
-    boxShadow: '0 1px 3px rgba(0,0,0,0.04)',
-    transition: 'all 0.15s',
-  },
-  variableConfigHeader: {
-    display: 'flex',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
-    borderBottom: '1px solid #f1f5f9',
-    paddingBottom: 8,
-  },
-  variableConfigGrid: {
-    display: 'grid',
-    gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-    gap: 10,
-  },
-  miniLabel: {
-    display: 'block',
-    fontSize: 10,
-    fontWeight: 700,
-    color: '#64748b',
-    textTransform: 'uppercase',
-    marginBottom: 3,
-    marginTop: 4,
-    letterSpacing: '0.03em',
-  },
-  tabsHeader: {
-    display: 'flex',
-    gap: 6,
-    borderBottom: '2px solid #e2e8f0',
-    paddingBottom: 0,
-    marginBottom: 16,
-    marginTop: 12,
-  },
-  tabButton: {
-    background: 'none',
-    border: 'none',
-    borderBottom: '3px solid transparent',
-    padding: '10px 16px',
-    cursor: 'pointer',
-    fontSize: 13,
-    fontWeight: 600,
-    color: '#64748b',
-    transition: 'all 0.15s',
-    display: 'flex',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: '6px 6px 0 0',
-  },
-  tabButtonActive: {
-    color: '#4f46e5',
-    borderBottomColor: '#4f46e5',
-    background: '#eef2ff',
-  },
-  tabButtonDisabled: {
-    color: '#cbd5e1',
-    cursor: 'not-allowed',
-    opacity: 0.5,
-  },
-  badgeCount: {
-    background: '#4f46e5',
-    color: '#fff',
-    fontSize: 10,
-    fontWeight: 700,
-    padding: '1px 6px',
-    borderRadius: 999,
-    minWidth: 16,
-    textAlign: 'center',
-  },
-  addBtn: { padding: '6px 12px', background: '#4f46e5', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer', fontWeight: 700, fontSize: 12, transition: 'all 0.15s' },
-  staticOptionBadge: { display: 'inline-flex', alignItems: 'center', gap: 4, background: '#e0e7ff', color: '#3730a3', padding: '3px 8px', borderRadius: 5, fontSize: 11, fontWeight: 600, border: '1px solid #c7d2fe' },
-  deleteBadgeCross: { cursor: 'pointer', color: '#4f46e5', fontWeight: 700, fontSize: 10, marginLeft: 3 },
-};

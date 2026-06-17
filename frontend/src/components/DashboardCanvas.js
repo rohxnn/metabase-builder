@@ -1,15 +1,40 @@
 import React, { useState, useEffect } from 'react';
-import GridLayout from 'react-grid-layout';
+import GridLayout, { WidthProvider } from 'react-grid-layout';
 import 'react-grid-layout/css/styles.css';
 import 'react-resizable/css/styles.css';
 import { useDispatch, useSelector } from 'react-redux';
+
+const ReactGridLayout = WidthProvider(GridLayout);
 import { actions } from '../store';
 import { runQuery } from '../services/api';
 import { toPreviewSql, injectWhereConditions } from '../services/queryPreview';
 import CardEditor from './CardEditor';
+import {
+  ResponsiveContainer,
+  BarChart, Bar,
+  LineChart, Line,
+  AreaChart, Area,
+  PieChart, Pie, Cell,
+  XAxis, YAxis,
+  CartesianGrid,
+  Tooltip
+} from 'recharts';
 
-const CARD_ICONS = { bar: '📊', line: '📈', pie: '🥧', scalar: '🔢', table: '📋', map: '🗺️', area: '📉', row: '📊' };
+const CARD_ICONS = {
+  scalar: '🔢', gauge: '⏲️', progress: '📊',
+  table: '📋', object: '📄', detail: '📄', bar: '📊', line: '📈', pie: '🥧', row: '↕️', area: '📉',
+  combo: '📊', pivot: '📋', smartscalar: '📈', trend: '📈', funnel: '⏳', map: '🗺️', scatter: '🔵',
+  waterfall: '📶'
+};
 const CHART_COLORS = ['#4c6ef5', '#12b886', '#f59f00', '#e64980', '#15aabf', '#845ef7', '#fd7e14'];
+
+const extractVariables = (query = '') => {
+  const names = new Set();
+  const re = /\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g;
+  let match;
+  while ((match = re.exec(query))) names.add(match[1]);
+  return [...names];
+};
 
 const toNumber = value => {
   const n = Number(value);
@@ -31,111 +56,259 @@ const getChartPoints = (result) => {
     .filter(Boolean);
 };
 
+function CustomTooltip({ active, payload }) {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div className="bg-slate-900 text-white px-2.5 py-1.5 rounded-lg shadow-md border border-slate-800 text-[11px] font-medium leading-normal">
+        <p className="font-semibold text-slate-300 mb-0.5">{data.name}</p>
+        <p className="text-[12px] font-bold text-white">{data.value.toLocaleString()}</p>
+      </div>
+    );
+  }
+  return null;
+}
+
 function ChartPreview({ type, result }) {
   const points = getChartPoints(result);
   if (!points.length) return <MiniTable result={result} />;
 
   if (type === 'pie') return <PiePreview points={points} />;
   if (type === 'line' || type === 'area') return <LinePreview points={points} area={type === 'area'} />;
+  if (type === 'row') return <RowPreview points={points} />;
   return <BarPreview points={points} />;
 }
 
 function BarPreview({ points }) {
-  const max = Math.max(...points.map(p => Math.abs(p.value)), 1);
+  const data = points.map((p, index) => ({
+    name: p.label,
+    value: p.value,
+    color: CHART_COLORS[index % CHART_COLORS.length]
+  }));
+
   return (
-    <div style={styles.chartWrap}>
-      {points.map((point, index) => (
-        <div key={`${point.label}-${index}`} style={styles.barRow}>
-          <span style={styles.barLabel} title={point.label}>{point.label}</span>
-          <div style={styles.barTrack}>
-            <div
-              style={{
-                ...styles.barFill,
-                width: `${Math.max(3, Math.abs(point.value) / max * 100)}%`,
-                background: CHART_COLORS[index % CHART_COLORS.length],
-              }}
-            />
-          </div>
-          <span style={styles.barValue}>{point.value.toLocaleString()}</span>
-        </div>
-      ))}
+    <div className="w-full h-full min-h-[140px] p-2 flex-1 min-w-0">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart
+          data={data}
+          margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+        >
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+          <XAxis
+            dataKey="name"
+            tick={{ fill: '#64748b', fontSize: 10, fontWeight: 500 }}
+            tickLine={false}
+            axisLine={false}
+            dy={5}
+          />
+          <YAxis
+            tick={{ fill: '#64748b', fontSize: 10, fontWeight: 500 }}
+            tickLine={false}
+            axisLine={false}
+            dx={-5}
+          />
+          <Tooltip
+            content={<CustomTooltip />}
+            cursor={{ fill: 'rgba(241, 245, 249, 0.4)' }}
+          />
+          <Bar dataKey="value" radius={[4, 4, 0, 0]}>
+            {data.map((entry, index) => (
+              <Cell key={`cell-${index}`} fill={entry.color} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+function RowPreview({ points }) {
+  const data = points.map((p, index) => ({
+    name: p.label,
+    value: p.value,
+    color: CHART_COLORS[index % CHART_COLORS.length]
+  }));
+
+  return (
+    <div className="w-full h-full min-h-[140px] p-2 flex-1 min-w-0">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart
+          data={data}
+          layout="vertical"
+          margin={{ top: 10, right: 15, left: 10, bottom: 5 }}
+        >
+          <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
+          <XAxis
+            type="number"
+            tick={{ fill: '#64748b', fontSize: 10, fontWeight: 500 }}
+            tickLine={false}
+            axisLine={false}
+            dy={5}
+          />
+          <YAxis
+            type="category"
+            dataKey="name"
+            tick={{ fill: '#64748b', fontSize: 10, fontWeight: 500 }}
+            tickLine={false}
+            axisLine={false}
+            width={70}
+            dx={-5}
+          />
+          <Tooltip
+            content={<CustomTooltip />}
+            cursor={{ fill: 'rgba(241, 245, 249, 0.4)' }}
+          />
+          <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+            {data.map((entry, index) => (
+              <Cell key={`cell-${index}`} fill={entry.color} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }
 
 function LinePreview({ points, area }) {
-  const width = 260;
-  const height = 150;
-  const values = points.map(p => p.value);
-  const min = Math.min(...values, 0);
-  const max = Math.max(...values, 1);
-  const range = max - min || 1;
-  const coords = points.map((point, index) => {
-    const x = points.length === 1 ? width / 2 : (index / (points.length - 1)) * width;
-    const y = height - ((point.value - min) / range) * (height - 24) - 12;
-    return { x, y, ...point };
-  });
-  const linePath = coords.map((point, index) => `${index === 0 ? 'M' : 'L'} ${point.x} ${point.y}`).join(' ');
-  const areaPath = `${linePath} L ${coords[coords.length - 1].x} ${height} L ${coords[0].x} ${height} Z`;
+  const data = points.map(p => ({
+    name: p.label,
+    value: p.value
+  }));
+
+  if (area) {
+    return (
+      <div className="w-full h-full min-h-[140px] p-2 flex-1 min-w-0">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart
+            data={data}
+            margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+          >
+            <defs>
+              <linearGradient id="areaGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#4c6ef5" stopOpacity={0.3} />
+                <stop offset="95%" stopColor="#4c6ef5" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+            <XAxis
+              dataKey="name"
+              tick={{ fill: '#64748b', fontSize: 10, fontWeight: 500 }}
+              tickLine={false}
+              axisLine={false}
+              dy={5}
+            />
+            <YAxis
+              tick={{ fill: '#64748b', fontSize: 10, fontWeight: 500 }}
+              tickLine={false}
+              axisLine={false}
+              dx={-5}
+            />
+            <Tooltip content={<CustomTooltip />} />
+            <Area
+              type="monotone"
+              dataKey="value"
+              stroke="#4c6ef5"
+              strokeWidth={3}
+              fillOpacity={1}
+              fill="url(#areaGradient)"
+              dot={{ r: 2, stroke: '#4c6ef5', strokeWidth: 1, fill: '#fff' }}
+              activeDot={{ r: 5, stroke: '#4c6ef5', strokeWidth: 2, fill: '#fff' }}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    );
+  }
 
   return (
-    <div style={styles.svgWrap}>
-      <svg
-        viewBox={`0 0 ${width} ${height}`}
-        width="100%"
-        height="100%"
-        preserveAspectRatio="none"
-        style={styles.svg}
-      >
-        {area && <path d={areaPath} fill="#dbe4ff" />}
-        <path d={linePath} fill="none" stroke="#4c6ef5" strokeWidth="3" vectorEffect="non-scaling-stroke" />
-        {coords.map((point, index) => (
-          <circle key={`${point.label}-${index}`} cx={point.x} cy={point.y} r="3" fill="#4c6ef5" />
-        ))}
-      </svg>
-      <div style={styles.chartFooter}>
-        <span title={points[0].label}>{points[0].label}</span>
-        <span title={points[points.length - 1].label}>{points[points.length - 1].label}</span>
-      </div>
+    <div className="w-full h-full min-h-[140px] p-2 flex-1 min-w-0">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart
+          data={data}
+          margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
+        >
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+          <XAxis
+            dataKey="name"
+            tick={{ fill: '#64748b', fontSize: 10, fontWeight: 500 }}
+            tickLine={false}
+            axisLine={false}
+            dy={5}
+          />
+          <YAxis
+            tick={{ fill: '#64748b', fontSize: 10, fontWeight: 500 }}
+            tickLine={false}
+            axisLine={false}
+            dx={-5}
+          />
+          <Tooltip content={<CustomTooltip />} />
+          <Line
+            type="monotone"
+            dataKey="value"
+            stroke="#4c6ef5"
+            strokeWidth={3}
+            dot={{ r: 2, stroke: '#4c6ef5', strokeWidth: 1, fill: '#fff' }}
+            activeDot={{ r: 5, stroke: '#4c6ef5', strokeWidth: 2, fill: '#fff' }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }
 
 function PiePreview({ points }) {
   const total = points.reduce((sum, point) => sum + Math.abs(point.value), 0) || 1;
-  let offset = 25;
-  const segments = points.map((point, index) => {
-    const value = Math.abs(point.value);
-    const dash = value / total * 100;
-    const segment = { ...point, dash, offset, color: CHART_COLORS[index % CHART_COLORS.length] };
-    offset -= dash;
-    return segment;
-  });
+  const data = points.map((p, index) => ({
+    name: p.label,
+    value: Math.abs(p.value),
+    rawValue: p.value,
+    color: CHART_COLORS[index % CHART_COLORS.length],
+    percentage: ((Math.abs(p.value) / total) * 100).toFixed(1)
+  }));
 
   return (
-    <div style={styles.pieWrap}>
-      <svg viewBox="0 0 42 42" style={styles.pieSvg}>
-        <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="#edf2ff" strokeWidth="8" />
-        {segments.map((segment, index) => (
-          <circle
-            key={`${segment.label}-${index}`}
-            cx="21"
-            cy="21"
-            r="15.915"
-            fill="transparent"
-            stroke={segment.color}
-            strokeWidth="8"
-            strokeDasharray={`${segment.dash} ${100 - segment.dash}`}
-            strokeDashoffset={segment.offset}
-          />
-        ))}
-      </svg>
-      <div style={styles.legend}>
-        {segments.slice(0, 5).map((segment, index) => (
-          <div key={`${segment.label}-${index}`} style={styles.legendItem}>
-            <span style={{ ...styles.legendDot, background: segment.color }} />
-            <span style={styles.legendText} title={segment.label}>{segment.label}</span>
-            <span style={styles.legendValue}>{segment.value.toLocaleString()}</span>
+    <div className="grid grid-cols-[1fr_minmax(120px,160px)] gap-2 items-center p-2 overflow-hidden flex-1 h-full min-h-[140px]">
+      <div className="w-full h-full min-h-[120px] flex items-center justify-center">
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={data}
+              cx="50%"
+              cy="50%"
+              innerRadius="55%"
+              outerRadius="80%"
+              paddingAngle={2}
+              dataKey="value"
+            >
+              {data.map((entry, index) => (
+                <Cell key={`cell-${index}`} fill={entry.color} />
+              ))}
+            </Pie>
+            <Tooltip
+              content={({ active, payload }) => {
+                if (active && payload && payload.length) {
+                  const item = payload[0].payload;
+                  return (
+                    <div className="bg-slate-900 text-white px-2.5 py-1.5 rounded-lg shadow-md border border-slate-800 text-[11px] font-medium leading-normal">
+                      <p className="font-semibold text-slate-300 mb-0.5">{item.name}</p>
+                      <p className="text-[12px] font-bold text-white">
+                        {item.rawValue.toLocaleString()} ({item.percentage}%)
+                      </p>
+                    </div>
+                  );
+                }
+                return null;
+              }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="grid gap-1.5 overflow-y-auto max-h-[140px] pr-1 scrollbar-thin">
+        {data.slice(0, 6).map((item, index) => (
+          <div key={`${item.name}-${index}`} className="grid grid-cols-[8px_1fr_auto] gap-2 items-center min-w-0">
+            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: item.color }} />
+            <span className="text-[11px] text-slate-500 overflow-hidden text-ellipsis whitespace-nowrap font-medium" title={item.name}>{item.name}</span>
+            <span className="text-[11px] text-slate-900 font-semibold text-right">{item.percentage}%</span>
           </div>
         ))}
       </div>
@@ -145,17 +318,23 @@ function PiePreview({ points }) {
 
 function MiniTable({ result }) {
   return (
-    <div style={styles.miniTableWrap}>
-      <table style={styles.miniTable}>
+    <div className="overflow-x-auto overflow-y-auto flex-1">
+      <table className="w-full border-collapse text-[11px]">
         <thead>
-          <tr>{result.columns.map((col, i) => <th key={i} style={styles.miniTh}>{col}</th>)}</tr>
+          <tr>
+            {result.columns.map((col, i) => (
+              <th key={i} className="py-1.5 px-2.5 bg-slate-50 border-b-2 border-slate-200 text-left font-semibold text-slate-600 whitespace-nowrap sticky top-0">
+                {col}
+              </th>
+            ))}
+          </tr>
         </thead>
         <tbody>
           {result.rows.slice(0, 5).map((row, i) => (
             <tr key={i}>
               {row.map((cell, j) => (
-                <td key={j} style={styles.miniTd}>
-                  {cell === null ? <span style={{ color: '#adb5bd' }}>—</span> : String(cell)}
+                <td key={j} className="py-1.25 px-2.5 border-b border-slate-100 text-slate-600 whitespace-nowrap">
+                  {cell === null ? <span className="text-slate-400">—</span> : String(cell)}
                 </td>
               ))}
             </tr>
@@ -163,7 +342,9 @@ function MiniTable({ result }) {
         </tbody>
       </table>
       {result.rows.length > 5 && (
-        <div style={styles.moreRows}>+{result.rows.length - 5} more rows</div>
+        <div className="py-1.5 px-2.5 text-[10px] text-slate-500 bg-slate-50 text-center border-t border-slate-200 font-medium">
+          +{result.rows.length - 5} more rows
+        </div>
       )}
     </div>
   );
@@ -171,13 +352,13 @@ function MiniTable({ result }) {
 
 // Renders query result based on display type
 function CardPreview({ card, result }) {
-  if (!result) return <span style={styles.noQuery}>No query — click ✏️ to edit</span>;
-  if (result.error) return <span style={styles.errorText}>⚠ {result.error}</span>;
-  if (!result.rows || result.rows.length === 0) return <span style={styles.noQuery}>No data returned</span>;
+  if (!result) return <span className="text-xs text-slate-400 italic p-3">No query — click ✏️ to edit</span>;
+  if (result.error) return <span className="text-xs text-red-500 p-3 font-semibold">⚠ {result.error}</span>;
+  if (!result.rows || result.rows.length === 0) return <span className="text-xs text-slate-400 italic p-3">No data returned</span>;
 
   if (card.type === 'scalar') {
     const val = result.rows && result.rows[0] ? result.rows[0][0] : 'No data';
-    return <div style={styles.scalar}>{val === null ? '—' : String(val)}</div>;
+    return <div className="text-4xl font-extrabold text-indigo-600 p-5 text-center flex-1 flex items-center justify-center tracking-tight">{val === null ? '—' : String(val)}</div>;
   }
 
   if (['bar', 'line', 'pie', 'area', 'row'].includes(card.type)) {
@@ -188,13 +369,18 @@ function CardPreview({ card, result }) {
 }
 
 function CardItem({ card, onEdit, onRemove, onDuplicate }) {
+  const dispatch = useDispatch();
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const whereConditions = useSelector(s => s.builder.config.whereConditions) || [];
   const filters = useSelector(s => s.builder.config.filters) || [];
   const metadata = useSelector(s => s.builder.metadata);
+  const selectedFilterId = useSelector(s => s.builder.selectedFilterId);
+  const selectedFilter = useSelector(s => s.builder.config.filters.find(f => f.id === selectedFilterId));
 
   useEffect(() => {
+    if (selectedFilterId) return; // Skip preview query run when configuring/mapping filters
+
     if (!card.query?.trim()) { setResult(null); return; }
     setLoading(true);
     const finalQuery = injectWhereConditions(card.query, whereConditions, filters, metadata);
@@ -202,23 +388,79 @@ function CardItem({ card, onEdit, onRemove, onDuplicate }) {
       .then(r => setResult(r))
       .catch(e => setResult({ error: e.response?.data?.error || e.message }))
       .finally(() => setLoading(false));
-  }, [card.query, whereConditions, filters, metadata]);
+  }, [card.query, whereConditions, filters, metadata, selectedFilterId]);
+
+  const handleRemoveMapping = () => {
+    const newMappings = (card.parameterMappings || []).filter(m => m.parameter_id !== selectedFilterId);
+    dispatch(actions.updateCard({
+      id: card.id,
+      parameterMappings: newMappings,
+    }));
+  };
+
+  const handleAddMapping = (variable) => {
+    if (!variable) return;
+    let newMappings = [...(card.parameterMappings || [])];
+    newMappings = newMappings.filter(m => m.target?.[1]?.[1] !== variable);
+    const isDimension = !!selectedFilter?.fieldId;
+    newMappings.push({
+      parameter_id: selectedFilterId,
+      target: [isDimension ? 'dimension' : 'variable', ['template-tag', variable]]
+    });
+    dispatch(actions.updateCard({
+      id: card.id,
+      parameterMappings: newMappings,
+    }));
+  };
+
+  const cardVariables = extractVariables(card.query || '');
+  const currentMapping = (card.parameterMappings || []).find(m => m.parameter_id === selectedFilterId);
+  const mappedVariable = currentMapping ? currentMapping.target?.[1]?.[1] : null;
 
   return (
-    <div style={styles.card}>
-      <div style={styles.cardHeader}>
-        <span style={styles.cardTitle}>{CARD_ICONS[card.type] || '📋'} {card.title}</span>
-        <div style={{ display: 'flex', gap: 4 }} onMouseDown={e => e.stopPropagation()}>
-          <button style={styles.iconBtn} onClick={onEdit} title="Edit">✏️</button>
-          <button style={styles.iconBtn} onClick={onDuplicate} title="Duplicate">📄</button>
-          <button style={styles.iconBtn} onClick={onRemove} title="Remove">🗑️</button>
-        </div>
+    <div className="bg-white/70 backdrop-blur-md border border-white/50 rounded-2xl overflow-hidden flex flex-col h-full shadow-[0_8px_30px_rgb(0,0,0,0.04),_0_1px_2px_rgb(0,0,0,0.03),_inset_0_1px_0_rgba(255,255,255,0.75)]">
+      <div className="flex justify-between items-center py-2.5 px-4 bg-slate-50/40 backdrop-blur-sm border-b border-slate-200/40 shrink-0">
+        <span className="text-[13px] font-bold text-slate-800 overflow-hidden text-ellipsis whitespace-nowrap">{CARD_ICONS[card.type] || '📋'} {card.title}</span>
+        {!selectedFilterId && (
+          <div className="flex gap-1.5" onMouseDown={e => e.stopPropagation()}>
+            <button className="bg-white/60 border border-white/80 rounded-md cursor-pointer text-xs p-1 flex items-center justify-center transition-all hover:bg-white/90 hover:border-slate-300/50 shadow-[0_1px_2px_rgba(0,0,0,0.02)]" onClick={onEdit} title="Edit">✏️</button>
+            <button className="bg-white/60 border border-white/80 rounded-md cursor-pointer text-xs p-1 flex items-center justify-center transition-all hover:bg-white/90 hover:border-slate-300/50 shadow-[0_1px_2px_rgba(0,0,0,0.02)]" onClick={onDuplicate} title="Duplicate">📄</button>
+            <button className="bg-white/60 border border-white/80 rounded-md cursor-pointer text-xs p-1 flex items-center justify-center transition-all hover:bg-white/90 hover:border-slate-300/50 shadow-[0_1px_2px_rgba(0,0,0,0.02)]" onClick={onRemove} title="Remove">🗑️</button>
+          </div>
+        )}
       </div>
-      <div style={styles.cardBody}>
-        {loading
-          ? <span style={styles.noQuery}>Loading…</span>
-          : <CardPreview card={card} result={result} />
-        }
+      <div className="flex-1 overflow-hidden flex flex-col justify-center p-4">
+        {selectedFilterId ? (
+          <div className="bg-white rounded-2xl p-5 shadow-lg flex flex-col items-center justify-center gap-2.5 mx-auto min-w-[170px] max-w-[90%] border border-slate-100">
+            <span className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider text-center">COLUMN TO FILTER ON</span>
+            {mappedVariable ? (
+              <button
+                onClick={handleRemoveMapping}
+                className="inline-flex items-center gap-1.5 py-1.5 px-3.5 rounded-lg text-xs font-semibold bg-blue-500 text-white hover:bg-blue-600 border-none shadow-sm cursor-pointer transition-all"
+              >
+                <span>{mappedVariable}</span>
+                <span className="text-[10px] font-bold ml-1 hover:text-red-200">✕</span>
+              </button>
+            ) : cardVariables.length > 0 ? (
+              <select
+                className="py-1.5 px-3 border border-slate-300 rounded-lg text-xs outline-none bg-white focus:border-indigo-500 shadow-sm font-semibold text-slate-700 w-full min-w-[130px] cursor-pointer"
+                value=""
+                onChange={e => handleAddMapping(e.target.value)}
+              >
+                <option value="">Select...</option>
+                {cardVariables.map(v => (
+                  <option key={v} value={v}>{v}</option>
+                ))}
+              </select>
+            ) : (
+              <span className="text-xs text-slate-400 italic">No variables to map</span>
+            )}
+          </div>
+        ) : loading ? (
+          <span className="text-xs text-slate-400 italic p-3 self-start">Loading…</span>
+        ) : (
+          <CardPreview card={card} result={result} />
+        )}
       </div>
     </div>
   );
@@ -230,6 +472,8 @@ export default function DashboardCanvas({ activeTab }) {
     c => activeTab === null ? true : c.tabIndex === activeTab
   );
   const filters = useSelector(s => s.builder.config.filters);
+  const selectedFilterId = useSelector(s => s.builder.selectedFilterId);
+  const selectedFilter = useSelector(s => s.builder.config.filters.find(f => f.id === selectedFilterId));
   const [editingCard, setEditingCard] = useState(null);
 
   const layout = cards.map(c => ({ i: c.id, x: c.col, y: c.row, w: c.sizeX, h: c.sizeY }));
@@ -252,20 +496,24 @@ export default function DashboardCanvas({ activeTab }) {
   };
 
   return (
-    <div style={styles.canvas} onDragOver={e => e.preventDefault()}>
+    <div className="flex-1 bg-slate-100 p-5 overflow-y-auto min-h-[600px]" onDragOver={e => e.preventDefault()}>
       {cards.length === 0 && (
-        <div style={styles.empty}>
+        <div className="flex items-center justify-center h-[250px] text-slate-400 text-sm font-medium border-2 border-dashed border-slate-300 rounded-xl m-5">
           <p>Drag cards from the left panel or click a card type to add</p>
         </div>
       )}
-      <GridLayout
+
+
+
+      <ReactGridLayout
         className="layout"
         layout={layout}
         cols={24}
         rowHeight={60}
-        width={1100}
         onLayoutChange={onLayoutChange}
-        isDroppable
+        isDroppable={!selectedFilterId}
+        isDraggable={!selectedFilterId}
+        isResizable={!selectedFilterId}
         onDrop={onDrop}
         droppingItem={{ i: '__dropping__', w: 6, h: 4 }}
       >
@@ -279,7 +527,7 @@ export default function DashboardCanvas({ activeTab }) {
             />
           </div>
         ))}
-      </GridLayout>
+      </ReactGridLayout>
 
       {editingCard && (
         <CardEditor
@@ -292,37 +540,3 @@ export default function DashboardCanvas({ activeTab }) {
     </div>
   );
 }
-
-const styles = {
-  canvas: { flex: 1, background: '#f1f5f9', padding: 20, overflowY: 'auto', minHeight: 600 },
-  empty: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: 250, color: '#94a3b8', fontSize: 15, fontWeight: 500, border: '2px dashed #cbd5e1', borderRadius: 12, margin: 20 },
-  card: { background: '#fff', border: '1px solid #e2e8f0', borderRadius: 12, overflow: 'hidden', display: 'flex', flexDirection: 'column', height: '100%', boxShadow: '0 4px 6px -1px rgba(0,0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05)', transition: 'transform 0.2s, box-shadow 0.2s' },
-  cardHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 14px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0', flexShrink: 0 },
-  cardTitle: { fontSize: 13, fontWeight: 700, color: '#1e293b', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  cardBody: { flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' },
-  noQuery: { fontSize: 12, color: '#94a3b8', fontStyle: 'italic', padding: 12 },
-  errorText: { fontSize: 12, color: '#ef4444', padding: 12, fontWeight: 500 },
-  scalar: { fontSize: 36, fontWeight: 800, color: '#4f46e5', padding: 20, textAlign: 'center', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', letterSpacing: '-0.02em' },
-  chartWrap: { display: 'grid', gap: 8, padding: 14, overflow: 'auto', flex: 1 },
-  barRow: { display: 'grid', gridTemplateColumns: '82px 1fr 56px', gap: 8, alignItems: 'center', minHeight: 20 },
-  barLabel: { fontSize: 11, color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 },
-  barTrack: { height: 9, borderRadius: 999, background: '#f1f5f9', overflow: 'hidden' },
-  barFill: { height: '100%', borderRadius: 999 },
-  barValue: { fontSize: 11, color: '#0f172a', textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 600 },
-  svgWrap: { padding: 14, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' },
-  svg: { width: '100%', height: '100%', minHeight: 90, display: 'block' },
-  chartFooter: { display: 'flex', justifyContent: 'space-between', gap: 10, color: '#64748b', fontSize: 10, overflow: 'hidden', fontWeight: 500, marginTop: 4 },
-  pieWrap: { display: 'grid', gridTemplateColumns: 'minmax(90px, 130px) 1fr', gap: 14, alignItems: 'center', padding: 14, overflow: 'hidden', flex: 1 },
-  pieSvg: { width: '100%', maxHeight: 130, transform: 'rotate(-90deg)' },
-  legend: { display: 'grid', gap: 6, minWidth: 0 },
-  legendItem: { display: 'grid', gridTemplateColumns: '9px minmax(0, 1fr) auto', gap: 8, alignItems: 'center' },
-  legendDot: { width: 8, height: 8, borderRadius: 999 },
-  legendText: { fontSize: 11, color: '#475569', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontWeight: 500 },
-  legendValue: { fontSize: 11, color: '#0f172a', fontWeight: 600 },
-  miniTableWrap: { overflowX: 'auto', overflowY: 'auto', flex: 1 },
-  miniTable: { width: '100%', borderCollapse: 'collapse', fontSize: 11 },
-  miniTh: { padding: '6px 10px', background: '#f8fafc', borderBottom: '2px solid #e2e8f0', textAlign: 'left', fontWeight: 600, color: '#475569', whiteSpace: 'nowrap', position: 'sticky', top: 0 },
-  miniTd: { padding: '5px 10px', borderBottom: '1px solid #f1f5f9', color: '#334155', whiteSpace: 'nowrap' },
-  moreRows: { padding: '6px 10px', fontSize: 10, color: '#64748b', background: '#f8fafc', textAlign: 'center', borderTop: '1px solid #e2e8f0', fontWeight: 500 },
-  iconBtn: { background: '#fff', border: '1px solid #cbd5e1', borderRadius: 6, cursor: 'pointer', fontSize: 12, padding: '4px 6px', display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s', boxShadow: '0 1px 2px rgba(0,0,0,0.02)' },
-};

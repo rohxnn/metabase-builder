@@ -34,7 +34,7 @@ export default function Builder({ onBack }) {
       try {
         const dbs = await listDatabases();
         const dbList = dbs?.data || dbs || [];
-        const activeDb = dbList.find(d => d.name === 'mitra5') || dbList[0];
+        const activeDb = dbList.find(d => d.name === 'test' || d.name === 'mitra5') || dbList[0];
         if (activeDb) {
           const meta = await getDatabaseMetadata(activeDb.id);
           dispatch(actions.setMetadata(meta));
@@ -182,46 +182,78 @@ export default function Builder({ onBack }) {
   };
 
   return (
-    <div style={styles.root}>
+    <div className="flex flex-col h-screen font-sans text-slate-900 bg-slate-100">
       {/* Top toolbar */}
-      <div style={styles.toolbar}>
-        <button style={styles.backBtn} onClick={onBack}>← Back</button>
-        <div style={styles.titleArea}>
+      <div className="flex items-center gap-4 py-3.5 px-6 bg-white border-b border-slate-200 shrink-0 shadow-sm">
+        <button
+          className="py-2 px-4 border border-slate-300 rounded-lg bg-white cursor-pointer text-xs font-semibold text-slate-600 transition-all hover:bg-slate-50 hover:border-slate-400"
+          onClick={onBack}
+        >
+          ← Back
+        </button>
+        <div className="flex items-center gap-3 flex-1">
           <input
-            style={styles.titleInput}
+            className="text-lg font-bold border border-transparent hover:border-slate-200 focus:border-slate-300 outline-none bg-transparent min-w-[250px] text-slate-900 py-1 px-2 rounded-md transition-all focus:bg-slate-50"
             value={state.name}
             onChange={e => dispatch(actions.setMeta({ name: e.target.value }))}
           />
-          <span style={{ ...styles.statusBadge, background: state.status === 'published' ? '#d3f9d8' : '#fff3bf' }}>
+          <span
+            className={`text-[10px] py-1 px-2.5 rounded-full font-semibold uppercase tracking-wider ${
+              state.status === 'published' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+            }`}
+          >
             {state.status}
           </span>
         </div>
         {message && (
-          <span style={{ fontSize: 12, color: message.type === 'success' ? '#2f9e44' : '#c92a2a', marginRight: 12 }}>
+          <span
+            className={`text-xs font-medium mr-3 ${
+              message.type === 'success' ? 'text-emerald-700' : 'text-red-700'
+            }`}
+          >
             {message.text}
           </span>
         )}
-        <button style={styles.saveBtn} onClick={handleSave} disabled={saving}>
+        <button
+          className="py-2 px-4 border border-slate-300 rounded-lg bg-white cursor-pointer text-xs font-semibold text-slate-700 transition-all hover:bg-slate-50 hover:border-slate-400 disabled:opacity-50"
+          onClick={handleSave}
+          disabled={saving}
+        >
           {saving ? 'Saving…' : 'Save Draft'}
         </button>
-        <button style={styles.publishBtn} onClick={handlePublish} disabled={publishing}>
+        <button
+          className="py-2 px-5 border-none rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 text-white cursor-pointer font-bold text-xs shadow-md hover:from-emerald-600 hover:to-emerald-700 hover:shadow-lg transition-all disabled:opacity-50"
+          onClick={handlePublish}
+          disabled={publishing}
+        >
           {publishing ? 'Publishing…' : '🚀 Publish to Metabase'}
         </button>
       </div>
 
       {/* Tab bar */}
       {tabs.length > 0 && (
-        <div style={styles.tabBar}>
-          {tabs.map((tab, i) => (
-            <button key={i} style={{ ...styles.tab, ...(activeTab === i ? styles.activeTab : {}) }} onClick={() => setActiveTab(i)}>
-              {tab.name}
-            </button>
-          ))}
+        <div className="flex gap-1.5 py-2.5 px-6 bg-slate-50 border-b border-slate-200">
+          {tabs.map((tab, i) => {
+            const isActive = activeTab === i;
+            return (
+              <button
+                key={i}
+                className={`py-1.5 px-4 border rounded-full cursor-pointer text-xs font-semibold transition-all ${
+                  isActive
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm hover:bg-indigo-700'
+                    : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50 hover:border-slate-400'
+                }`}
+                onClick={() => setActiveTab(i)}
+              >
+                {tab.name}
+              </button>
+            );
+          })}
         </div>
       )}
 
       {/* Main area */}
-      <div style={styles.main}>
+      <div className="flex flex-1 overflow-hidden">
         <CardPalette onAdd={card => dispatch(actions.addCard({ ...card, tabIndex: activeTab ?? undefined }))} />
         <DashboardCanvas activeTab={activeTab} />
         <ConfigPanel />
@@ -229,18 +261,3 @@ export default function Builder({ onBack }) {
     </div>
   );
 }
-
-const styles = {
-  root: { display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#0f172a', background: '#f1f5f9' },
-  toolbar: { display: 'flex', alignItems: 'center', gap: 16, padding: '14px 24px', background: '#fff', borderBottom: '1px solid #e2e8f0', flexShrink: 0, boxShadow: '0 1px 3px rgba(0,0,0,0.02)' },
-  backBtn: { padding: '8px 16px', border: '1px solid #cbd5e1', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#475569', transition: 'all 0.2s' },
-  titleArea: { display: 'flex', alignItems: 'center', gap: 12, flex: 1 },
-  titleInput: { fontSize: 18, fontWeight: 700, border: 'none', outline: 'none', background: 'transparent', minWidth: 250, color: '#0f172a', padding: '4px 8px', borderRadius: 6, transition: 'all 0.2s' },
-  statusBadge: { fontSize: 11, padding: '3px 10px', borderRadius: 999, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.025em' },
-  saveBtn: { padding: '8px 16px', border: '1px solid #cbd5e1', borderRadius: 8, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#334155', transition: 'all 0.2s' },
-  publishBtn: { padding: '8px 20px', border: 'none', borderRadius: 8, background: 'linear-gradient(135deg, #10b981 0%, #059669 100%)', color: '#fff', cursor: 'pointer', fontWeight: 700, fontSize: 13, boxShadow: '0 2px 8px rgba(16, 185, 129, 0.25)', transition: 'all 0.2s' },
-  tabBar: { display: 'flex', gap: 6, padding: '10px 24px', background: '#f8fafc', borderBottom: '1px solid #e2e8f0' },
-  tab: { padding: '6px 16px', border: '1px solid #cbd5e1', borderRadius: 999, background: '#fff', cursor: 'pointer', fontSize: 13, fontWeight: 600, color: '#475569', transition: 'all 0.2s' },
-  activeTab: { background: '#4f46e5', color: '#fff', borderColor: '#4f46e5', boxShadow: '0 2px 4px rgba(79, 70, 229, 0.15)' },
-  main: { display: 'flex', flex: 1, overflow: 'hidden' },
-};

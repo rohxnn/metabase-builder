@@ -413,14 +413,21 @@ function buildTemplateTags(card, filters = []) {
 
     // Preserve card-level dropdown configs (question-specific filters like reporting_period)
     // Handle both underscored (our format) and hyphenated (Metabase format) keys
-    const srcType = getTagSourceType(existing[name]);
-    const srcConfig = normalizeStaticConfig(getTagSourceConfig(existing[name]));
+    const isDimension = tagType === 'dimension';
+    const srcType = isDimension ? null : getTagSourceType(existing[name]);
+    const srcConfig = isDimension ? null : normalizeStaticConfig(getTagSourceConfig(existing[name]));
+    
     if (srcType) {
       // Write both formats for compatibility
       tagObj['values-source-type'] = srcType;
       tagObj['values-source-config'] = srcConfig || null;
       tagObj.values_source_type = srcType;
       tagObj.values_source_config = srcConfig || null;
+    } else {
+      delete tagObj['values-source-type'];
+      delete tagObj['values-source-config'];
+      delete tagObj.values_source_type;
+      delete tagObj.values_source_config;
     }
 
     // Preserve default value from card-level tag or dashboard filter
@@ -462,7 +469,7 @@ function normalizeParameter(filter) {
   const slug = filter.slug || (filter.name || 'filter').toLowerCase().replace(/\s+/g, '_');
   const type = filter.type || 'string/=';
   const valuesConfig = normalizeStaticConfig(filter.values_source_config);
-  const hasStaticValues = filter.values_source_type === 'static-list' && !!valuesConfig;
+  const hasStaticValues = filter.values_source_type === 'static-list' && !filter.fieldId && !!valuesConfig;
 
   // NOTE: Do NOT include `target` here — Metabase's parameter validator
   // crashes (ClassCastException) when it encounters a `target` on dashboard-level
@@ -520,8 +527,9 @@ function buildCardParameters(compiledTags = {}, finalMappings = [], filters = []
     const filter = mapping
       ? findDashboardFilterForTag(tagName, filters, mapping.parameter_id)
       : findDashboardFilterForTag(tagName, filters);
-    const sourceType = getTagSourceType(tag) || filter?.values_source_type;
-    const sourceConfig = normalizeStaticConfig(getTagSourceConfig(tag) || filter?.values_source_config);
+    const isDimension = tag.type === 'dimension' || !!filter?.fieldId;
+    const sourceType = isDimension ? null : (getTagSourceType(tag) || filter?.values_source_type);
+    const sourceConfig = isDimension ? null : normalizeStaticConfig(getTagSourceConfig(tag) || filter?.values_source_config);
     const type = tag.type === 'dimension'
       ? (tag['widget-type'] || filter?.type || 'string/=')
       : (filter?.type || tag['widget-type'] || (tag.type === 'number' ? 'number/=' : tag.type === 'date' ? 'date/all-options' : 'string/='));
@@ -674,7 +682,10 @@ async function publish(dashboardConfig, existingIds = null) {
     let values_source_type = filter.values_source_type;
     let values_source_config = filter.values_source_config;
 
-    if (!values_source_type || values_source_type !== 'static-list') {
+    if (filter.fieldId) {
+      values_source_type = null;
+      values_source_config = null;
+    } else if (!values_source_type || values_source_type !== 'static-list') {
       for (const card of safeCards) {
         const mappings = card.parameterMappings || [];
         const mapping = mappings.find(m => {

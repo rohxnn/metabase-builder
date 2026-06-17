@@ -21,6 +21,7 @@ const builderSlice = createSlice({
     metabase_dashboard_id: null,
     metabase_collection_id: null,
     metabase_card_ids: {},
+    selectedFilterId: null,
     saving: false,
     publishing: false,
     error: null,
@@ -33,6 +34,7 @@ const builderSlice = createSlice({
       return {
         ...state,
         ...payload,
+        selectedFilterId: null,
         config: {
           ...defaultConfig,
           ...config,
@@ -44,14 +46,26 @@ const builderSlice = createSlice({
       };
     },
     setMeta(state, { payload }) {
-      state.name = payload.name ?? state.name;
-      state.description = payload.description ?? state.description;
+      if (payload.name !== undefined) {
+        state.name = payload.name;
+        state.config.dashboard.name = payload.name;
+      }
+      if (payload.description !== undefined) {
+        state.description = payload.description;
+        state.config.dashboard.description = payload.description;
+      }
     },
     setCollection(state, { payload }) {
       state.config.collection = { ...state.config.collection, ...payload };
     },
     setDashboardMeta(state, { payload }) {
       state.config.dashboard = { ...state.config.dashboard, ...payload };
+      if (payload.name !== undefined) {
+        state.name = payload.name;
+      }
+      if (payload.description !== undefined) {
+        state.description = payload.description;
+      }
     },
     addTab(state, { payload }) {
       state.config.dashboard.tabs.push({ name: payload });
@@ -113,8 +127,9 @@ const builderSlice = createSlice({
       state.config.cards = state.config.cards.filter(c => c.id !== payload);
     },
     addFilter(state, { payload }) {
+      const filterId = uuidv4().slice(0, 8);
       state.config.filters.push({
-        id: uuidv4().slice(0, 8),
+        id: filterId,
         name: payload.name || 'New Filter',
         slug: (payload.name || 'new_filter').toLowerCase().replace(/\s+/g, '_'),
         type: payload.type || 'string/=',
@@ -131,6 +146,7 @@ const builderSlice = createSlice({
         fieldName: payload.fieldName || null,
         fieldId: payload.fieldId || null,
       });
+      state.selectedFilterId = filterId;
     },
     updateFilter(state, { payload }) {
       const idx = state.config.filters.findIndex(f => f.id === payload.id);
@@ -138,6 +154,9 @@ const builderSlice = createSlice({
     },
     updateFilters(state, { payload }) {
       state.config.filters = payload;
+    },
+    setSelectedFilterId(state, { payload }) {
+      state.selectedFilterId = payload;
     },
     removeFilter(state, { payload }) {
       const filter = state.config.filters.find(f => f.id === payload);
@@ -150,6 +169,9 @@ const builderSlice = createSlice({
             c => c.trim() !== condText
           );
         }
+      }
+      if (state.selectedFilterId === payload) {
+        state.selectedFilterId = null;
       }
     },
     addGroup(state, { payload }) {

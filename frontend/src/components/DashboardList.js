@@ -20,6 +20,10 @@ const asArray = (value) => {
 };
 
 const copyText = (value) => `${value || 'Untitled Dashboard'} (Duplicate)`;
+const cleanCardTitle = (title) => {
+  if (!title) return '';
+  return title.replace(/\s*\(Duplicate\)/gi, '').trim();
+};
 const metabaseDraftId = (id) => uuidv5(`metabase-dashboard:${id}`, METABASE_DRAFT_NAMESPACE);
 
 const cloneConfig = (config = {}, name = '', description = '') => {
@@ -62,7 +66,7 @@ const cloneConfig = (config = {}, name = '', description = '') => {
     return {
       ...localCard,
       id: uuidv4(),
-      title: copyText(card.title),
+      title: cleanCardTitle(card.title),
       col: (card.col ?? 0) + 1,
       row: (card.row ?? 0) + 1,
       parameterMappings: updatedMappings,
@@ -295,7 +299,7 @@ export default function DashboardList({ onOpen, onCreate }) {
 
       return {
         id: uuidv4(),
-        title: duplicate ? copyText(title) : title,
+        title: duplicate ? cleanCardTitle(title) : title,
         type: getCardType(card),
         query,
         description: card.description || '',
@@ -449,50 +453,54 @@ export default function DashboardList({ onOpen, onCreate }) {
   };
 
   return (
-    <div style={styles.page}>
-      <div style={styles.header}>
+    <div className="py-10 px-8 max-w-[1120px] mx-auto font-sans text-slate-900 bg-slate-50 min-h-screen">
+      <div className="flex justify-between items-start gap-4 mb-6">
         <div>
-          <h2 style={styles.pageTitle}>Dashboards</h2>
-          <p style={styles.subtitle}>Open, duplicate, publish, or import dashboards into the builder.</p>
+          <h2 className="m-0 text-3xl font-extrabold text-slate-900 tracking-tight">Dashboards</h2>
+          <p className="mt-2 text-slate-600 text-sm font-normal">Open, duplicate, publish, or import dashboards into the builder.</p>
         </div>
-        <button style={styles.createBtn} onClick={onCreate}>+ New Dashboard</button>
+        <button className="py-2.5 px-5.5 bg-gradient-to-r from-indigo-600 to-blue-600 text-white border-none rounded-lg cursor-pointer font-semibold text-sm shadow-md hover:shadow-lg transition-all focus:outline-none" onClick={onCreate}>+ New Dashboard</button>
       </div>
 
       {message && (
-        <div style={{ ...styles.alert, background: message.type === 'success' ? '#d3f9d8' : '#ffe3e3', color: message.type === 'success' ? '#2f9e44' : '#c92a2a' }}>
+        <div className={`py-3 px-4.5 rounded-lg mb-4 text-sm font-medium ${
+          message.type === 'success' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
+        }`}>
           {message.text}
         </div>
       )}
 
-      <section style={styles.section}>
-        <div style={styles.sectionHeader}>
+      <section className="mb-10">
+        <div className="flex justify-between items-center gap-4 mb-4 border-b-2 border-slate-200 pb-2.5 mt-10">
           <div>
-            <h3 style={styles.sectionTitle}>Saved Dashboard Configs</h3>
-            <p style={styles.sectionHelp}>Drafts and dashboards created from this builder.</p>
+            <h3 className="m-0 text-xl font-bold text-slate-800">Saved Dashboard Configs</h3>
+            <p className="mt-1 text-slate-500 text-xs">Drafts and dashboards created from this builder.</p>
           </div>
-          <span style={styles.countBadge}>{dashboards.length}</span>
+          <span className="min-w-[24px] h-6 flex items-center justify-center rounded-full bg-slate-200 text-slate-600 text-xs font-bold px-2">{dashboards.length}</span>
         </div>
 
-        {loading ? <p style={styles.muted}>Loading dashboards...</p> : (
-          <div style={styles.savedList}>
+        {loading ? <p className="text-slate-500 text-sm">Loading dashboards...</p> : (
+          <div className="grid gap-3">
             {dashboards.map(d => (
-              <div key={d.id} style={styles.savedRow}>
-                <div style={styles.savedMain}>
-                  <div style={styles.savedTitle}>{d.name}</div>
-                  {d.description && <div style={styles.savedDescription}>{d.description}</div>}
-                  <div style={styles.metaLine}>
-                    <span style={{ ...styles.badge, background: d.status === 'published' ? '#d3f9d8' : '#fff3bf' }}>{d.status || 'draft'}</span>
-                    {d.config?.cards && <span style={{ background: '#eef2ff', color: '#4f46e5', padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>📊 {d.config.cards.length} cards</span>}
-                    {d.config?.filters && d.config.filters.length > 0 && <span style={{ background: '#f0fdf4', color: '#16a34a', padding: '2px 8px', borderRadius: 999, fontSize: 11, fontWeight: 600 }}>🎛️ {d.config.filters.length} filters</span>}
+              <div key={d.id} className="flex justify-between items-center gap-4 border border-slate-200 rounded-xl p-5 bg-white shadow-sm transition-all hover:shadow-md">
+                <div className="min-w-0">
+                  <div className="text-base font-bold text-slate-900 overflow-hidden text-ellipsis whitespace-nowrap">{d.name}</div>
+                  {d.description && <div className="mt-1 text-slate-600 text-xs overflow-hidden text-ellipsis whitespace-nowrap">{d.description}</div>}
+                  <div className="flex flex-wrap items-center gap-3 mt-3 text-slate-500 text-xs font-semibold">
+                    <span className={`py-0.5 px-2.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${
+                      d.status === 'published' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                    }`}>{d.status || 'draft'}</span>
+                    {d.config?.cards && <span className="bg-indigo-50 text-indigo-700 py-0.5 px-2 rounded-full text-[10px] font-semibold">📊 {d.config.cards.length} cards</span>}
+                    {d.config?.filters && d.config.filters.length > 0 && <span className="bg-emerald-50 text-emerald-700 py-0.5 px-2 rounded-full text-[10px] font-semibold">🎛️ {d.config.filters.length} filters</span>}
                     <span>{d.metabase_dashboard_id ? `Metabase #${d.metabase_dashboard_id}` : 'Not published'}</span>
                     {d.updated_at && <span>Updated {new Date(d.updated_at).toLocaleString()}</span>}
                   </div>
                 </div>
-                <div style={styles.rowActions}>
-                  <button style={styles.primaryActionBtn} onClick={() => onOpen(d)} title="Edit dashboard">✏️ Edit</button>
-                  <button style={styles.actionBtn} onClick={() => handleDuplicateSaved(d)} title="Duplicate dashboard">📋 Duplicate</button>
+                <div className="flex justify-end gap-2 flex-wrap shrink-0">
+                  <button className="py-2 px-4 border-none rounded-lg cursor-pointer text-xs bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 transition-all" onClick={() => onOpen(d)} title="Edit dashboard">✏️ Edit</button>
+                  <button className="py-2 px-4 border border-slate-300 rounded-lg cursor-pointer text-xs bg-white text-slate-700 font-semibold transition-all hover:bg-slate-50 hover:border-slate-400" onClick={() => handleDuplicateSaved(d)} title="Duplicate dashboard">📋 Duplicate</button>
                   <button
-                    style={{ ...styles.actionBtn, background: 'linear-gradient(135deg, #10b981, #059669)', color: '#fff', borderColor: '#059669' }}
+                    className="py-2 px-4 border border-emerald-600 rounded-lg cursor-pointer text-xs bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold shadow-sm hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50"
                     onClick={() => handlePublish(d.id)}
                     disabled={publishing === d.id}
                     title="Publish to Metabase"
@@ -500,7 +508,7 @@ export default function DashboardList({ onOpen, onCreate }) {
                     {publishing === d.id ? '⏳ Publishing...' : '🚀 Publish'}
                   </button>
                   <button
-                    style={{ ...styles.actionBtn, background: '#fff5f5', color: '#c92a2a', borderColor: '#ffc9c9' }}
+                    className="py-2 px-4 border border-red-200 rounded-lg cursor-pointer text-xs bg-red-50 text-red-700 font-semibold transition-all hover:bg-red-100 hover:border-red-300"
                     onClick={() => handleDelete(d.id)}
                     title="Delete dashboard"
                   >
@@ -510,38 +518,38 @@ export default function DashboardList({ onOpen, onCreate }) {
               </div>
             ))}
             {dashboards.length === 0 && (
-              <div style={styles.emptyState}>No saved dashboards yet. Create one or import from Metabase below.</div>
+              <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-slate-500 bg-slate-50 text-center text-sm">No saved dashboards yet. Create one or import from Metabase below.</div>
             )}
           </div>
         )}
       </section>
 
-      <section style={styles.section}>
-        <div style={styles.sectionHeader}>
+      <section className="mb-10">
+        <div className="flex justify-between items-center gap-4 mb-4 border-b-2 border-slate-200 pb-2.5 mt-10">
           <div>
-            <h3 style={styles.sectionTitle}>Metabase Dashboards</h3>
-            <p style={styles.sectionHelp}>Edit opens a stable local draft. Duplicate creates a frontend-only copy.</p>
+            <h3 className="m-0 text-xl font-bold text-slate-800">Metabase Dashboards</h3>
+            <p className="mt-1 text-slate-500 text-xs">Edit opens a stable local draft. Duplicate creates a frontend-only copy.</p>
           </div>
-          <span style={styles.countBadge}>{metabaseDashboards.length}</span>
+          <span className="min-w-[24px] h-6 flex items-center justify-center rounded-full bg-slate-200 text-slate-600 text-xs font-bold px-2">{metabaseDashboards.length}</span>
         </div>
         {loading ? (
-          <p style={styles.muted}>Loading Metabase dashboards...</p>
+          <p className="text-slate-500 text-sm">Loading Metabase dashboards...</p>
         ) : metabaseDashboards.length > 0 ? (
-          <div style={styles.dashboardGrid}>
+          <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-5">
             {metabaseDashboards.map(d => (
-              <div key={d.id} style={styles.dashboardCard}>
-                <div style={styles.cardTopline}>
-                  <h4 style={styles.cardTitle}>{d.name}</h4>
-                  <span style={styles.idPill}>#{d.id}</span>
+              <div key={d.id} className="border border-slate-200 rounded-xl p-5 bg-white flex flex-col min-h-[180px] shadow-sm transition-all hover:shadow-md">
+                <div className="flex justify-between gap-2.5 items-start">
+                  <h4 className="m-0 mb-2 text-base font-bold text-slate-900 leading-snug">{d.name}</h4>
+                  <span className="py-0.5 px-2 rounded-full bg-slate-100 text-slate-500 text-[10px] font-bold shrink-0">#{d.id}</span>
                 </div>
-                {d.description && <p style={styles.cardDescription}>{d.description}</p>}
-                <div style={styles.cardMeta}>
+                {d.description && <p className="m-0 mb-4 text-xs text-slate-600 leading-relaxed">{d.description}</p>}
+                <div className="grid gap-1 text-[11px] text-slate-500 mb-4 font-semibold">
                   <span>{d.collection?.name || d.collection_name || 'Metabase'}</span>
                   {d.updated_at && <span>Updated {new Date(d.updated_at).toLocaleString()}</span>}
                 </div>
-                <div style={styles.cardActions}>
+                <div className="flex gap-2 flex-wrap mt-auto">
                   <button
-                    style={styles.primaryActionBtn}
+                    className="py-2 px-4 border-none rounded-lg cursor-pointer text-xs bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 transition-all disabled:opacity-50"
                     onClick={() => handleEditMetabase(d)}
                     disabled={remoteLoading === `edit-${d.id}`}
                     title="Edit in builder"
@@ -549,7 +557,7 @@ export default function DashboardList({ onOpen, onCreate }) {
                     {remoteLoading === `edit-${d.id}` ? '⏳ Loading...' : '✏️ Edit'}
                   </button>
                   <button
-                    style={styles.actionBtn}
+                    className="py-2 px-4 border border-slate-300 rounded-lg cursor-pointer text-xs bg-white text-slate-700 font-semibold transition-all hover:bg-slate-50 hover:border-slate-400 disabled:opacity-50"
                     onClick={() => handleDuplicateMetabase(d)}
                     disabled={remoteLoading === `duplicate-${d.id}`}
                     title="Duplicate as new draft"
@@ -560,7 +568,7 @@ export default function DashboardList({ onOpen, onCreate }) {
                     href={getDashboardLink(d)}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style={styles.viewBtn}
+                    className="inline-block py-2 px-3.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-xs font-semibold shadow-sm transition-all"
                     title="View in Metabase"
                   >
                     🔗 View in Metabase
@@ -570,44 +578,9 @@ export default function DashboardList({ onOpen, onCreate }) {
             ))}
           </div>
         ) : (
-          <div style={styles.emptyState}>No Metabase dashboards found.</div>
+          <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-slate-500 bg-slate-50 text-center text-sm">No Metabase dashboards found.</div>
         )}
       </section>
     </div>
   );
 }
-
-const styles = {
-  page: { padding: '40px 32px', maxWidth: 1120, margin: '0 auto', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#0f172a', background: '#f8fafc', minHeight: '100vh' },
-  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 16, marginBottom: 24 },
-  pageTitle: { margin: 0, fontSize: 32, fontWeight: 800, color: '#0f172a', letterSpacing: '-0.025em' },
-  subtitle: { margin: '8px 0 0', color: '#475569', fontSize: 15, fontWeight: 400 },
-  createBtn: { padding: '10px 22px', background: 'linear-gradient(135deg, #4f46e5 0%, #2563eb 100%)', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 14, boxShadow: '0 4px 12px rgba(79, 70, 229, 0.25)', transition: 'all 0.2s', outline: 'none' },
-  alert: { padding: '12px 18px', borderRadius: 8, marginBottom: 16, fontSize: 14, fontWeight: 500 },
-  section: { marginBottom: 40 },
-  sectionHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, marginBottom: 16, borderBottom: '2px solid #e2e8f0', paddingBottom: 10, marginTop: 40 },
-  sectionTitle: { margin: 0, fontSize: 20, fontWeight: 700, color: '#1e293b' },
-  sectionHelp: { margin: '4px 0 0', color: '#64748b', fontSize: 13 },
-  countBadge: { minWidth: 24, height: 24, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 999, background: '#e2e8f0', color: '#475569', fontSize: 12, fontWeight: 700, padding: '0 8px' },
-  muted: { color: '#64748b', fontSize: 14 },
-  savedList: { display: 'grid', gap: 12 },
-  savedRow: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16, border: '1px solid #e2e8f0', borderRadius: 12, padding: 20, background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.05)', transition: 'all 0.2s' },
-  savedMain: { minWidth: 0 },
-  savedTitle: { fontSize: 16, fontWeight: 700, color: '#0f172a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  savedDescription: { marginTop: 4, color: '#475569', fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
-  metaLine: { display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 12, marginTop: 12, color: '#64748b', fontSize: 12, fontWeight: 500 },
-  rowActions: { display: 'flex', justifyContent: 'flex-end', gap: 8, flexWrap: 'wrap', flexShrink: 0 },
-  badge: { padding: '3px 10px', borderRadius: 999, fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.025em' },
-  primaryActionBtn: { padding: '8px 16px', border: 'none', borderRadius: 8, cursor: 'pointer', fontSize: 13, background: '#4f46e5', color: '#fff', fontWeight: 600, boxShadow: '0 2px 4px rgba(79, 70, 229, 0.15)', transition: 'all 0.2s' },
-  actionBtn: { padding: '8px 16px', border: '1px solid #cbd5e1', borderRadius: 8, cursor: 'pointer', fontSize: 13, background: '#fff', color: '#334155', fontWeight: 600, transition: 'all 0.2s' },
-  dashboardGrid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 20 },
-  dashboardCard: { border: '1px solid #e2e8f0', borderRadius: 12, padding: 20, background: '#fff', display: 'flex', flexDirection: 'column', minHeight: 180, boxShadow: '0 1px 3px rgba(0,0,0,0.05)', transition: 'all 0.2s' },
-  cardTopline: { display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' },
-  cardTitle: { margin: '0 0 8px 0', fontSize: 16, fontWeight: 700, color: '#0f172a', lineHeight: 1.4 },
-  idPill: { padding: '2px 8px', borderRadius: 999, background: '#f1f5f9', color: '#64748b', fontSize: 11, fontWeight: 700, flexShrink: 0 },
-  cardDescription: { margin: '0 0 16px 0', fontSize: 13, color: '#475569', lineHeight: 1.5 },
-  cardMeta: { display: 'grid', gap: 4, fontSize: 12, color: '#64748b', marginBottom: 16, fontWeight: 500 },
-  cardActions: { display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 'auto' },
-  viewBtn: { display: 'inline-block', padding: '8px 14px', background: '#3b82f6', color: '#fff', borderRadius: 8, textDecoration: 'none', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer', boxShadow: '0 2px 4px rgba(59, 130, 246, 0.15)', transition: 'all 0.2s' },
-  emptyState: { border: '2px dashed #cbd5e1', borderRadius: 12, padding: 32, color: '#64748b', background: '#f8fafc', textAlign: 'center', fontSize: 15 },
-};

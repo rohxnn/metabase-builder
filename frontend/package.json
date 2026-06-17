@@ -10,6 +10,7 @@
     "react-grid-layout": "^1.4.4",
     "react-redux": "^9.0.4",
     "react-scripts": "5.0.1",
+    "recharts": "^3.8.1",
     "uuid": "^9.0.0"
   },
   "scripts": {
@@ -18,7 +19,18 @@
   },
   "proxy": "http://localhost:8081",
   "browserslist": {
-    "production": [">0.2%", "not dead", "not op_mini all"],
-    "development": ["last 1 chrome version"]
+    "production": [
+      ">0.2%",
+      "not dead",
+      "not op_mini all"
+    ],
+    "development": [
+      "last 1 chrome version"
+    ]
+  },
+  "devDependencies": {
+    "autoprefixer": "^10.5.0",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^3.4.19"
   }
 }
