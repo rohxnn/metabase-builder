@@ -4,6 +4,7 @@ import { runQuery, listDatabases, getDatabaseMetadata } from '../services/api';
 import { hasMetabaseFilters, toPreviewSql, injectWhereConditions } from '../services/queryPreview';
 
 const DISPLAY_TYPES = ['table', 'bar', 'line', 'pie', 'scalar', 'map', 'area', 'row'];
+const REPORTING_PERIOD_VALUES = ['Weekly', 'Monthly', 'Quarterly', 'Yearly'];
 
 const extractVariables = (query = '') => {
   const names = new Set();
@@ -48,6 +49,11 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
   const hasMetabaseDetails = form.metabaseCardId || form.metabaseDashcardId || form.databaseId || form.display || form.description;
 
   const variables = extractVariables(form.query || '');
+  const reportingPeriodTag = (form.templateTags || {}).reporting_period;
+  const reportingPeriodValues = (reportingPeriodTag?.values_source_config?.values || [])
+    .map(value => Array.isArray(value) ? value[0] : value);
+  const hasReportingPeriodDropdown = reportingPeriodTag?.values_source_type === 'static-list'
+    && REPORTING_PERIOD_VALUES.every(value => reportingPeriodValues.includes(value));
 
   // Load database metadata
   useEffect(() => {
@@ -795,7 +801,7 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                   Quick Templates
                 </span>
                 <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
-                  {!variables.includes('reporting_period') && (
+                  {!hasReportingPeriodDropdown && (
                     <button
                       style={{
                         padding: '6px 12px', border: '1px solid #fde68a', borderRadius: 8,
@@ -806,15 +812,18 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                       onClick={() => {
                         const slug = 'reporting_period';
                         const existingTags = { ...(form.templateTags || {}) };
+                        const currentValues = (existingTags[slug]?.values_source_config?.values || [])
+                          .map(value => Array.isArray(value) ? value[0] : value);
                         existingTags[slug] = {
+                          ...(existingTags[slug] || {}),
                           id: slug,
                           name: slug,
                           'display-name': 'Reporting Period',
-                          type: 'text',
-                          required: false,
-                          default: 'Monthly',
+                          type: existingTags[slug]?.type || 'text',
+                          required: existingTags[slug]?.required ?? false,
+                          default: existingTags[slug]?.default || 'Monthly',
                           values_source_type: 'static-list',
-                          values_source_config: { values: ['Monthly', 'Quarterly', 'Yearly'] },
+                          values_source_config: { values: [...new Set([...currentValues, ...REPORTING_PERIOD_VALUES])] },
                         };
                         let newQuery = form.query || '';
                         if (!newQuery.includes(`{{${slug}}}`)) {
@@ -824,12 +833,12 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                         setForm(f => ({ ...f, query: newQuery, templateTags: existingTags }));
                       }}
                     >
-                      📅 + Reporting Period
+                      📅 {variables.includes('reporting_period') ? 'Use Reporting Period Dropdown' : '+ Reporting Period'}
                     </button>
                   )}
-                  {variables.includes('reporting_period') && (
+                  {hasReportingPeriodDropdown && (
                     <span style={{ fontSize: 11, color: '#059669', fontWeight: 600, padding: '6px 12px', background: '#ecfdf5', borderRadius: 8, border: '1px solid #a7f3d0' }}>
-                      ✅ Reporting Period already added
+                      ✅ Reporting Period dropdown ready
                     </span>
                   )}
                 </div>

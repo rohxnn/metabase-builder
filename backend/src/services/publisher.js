@@ -138,6 +138,24 @@ function injectWhereConditions(query = '', conditions = [], filters = [], metada
 
   if (activeConditions.length === 0) return query;
 
+  // Apply exclusions/priorities (e.g. programs.id overrides submissions.program_id)
+  let filteredConditions = [...activeConditions];
+  
+  const hasPrimaryProgram = filteredConditions.some(c => c.toLowerCase().includes('programs.id'));
+  if (hasPrimaryProgram) {
+    filteredConditions = filteredConditions.filter(c => !c.toLowerCase().includes('submissions.program_id'));
+  }
+
+  const hasPrimaryLeader = filteredConditions.some(c => c.toLowerCase().includes('leader_category.id'));
+  if (hasPrimaryLeader) {
+    filteredConditions = filteredConditions.filter(c => 
+      !c.toLowerCase().includes('submissions.leader_category') && 
+      !c.toLowerCase().includes('submissions.leader_id')
+    );
+  }
+
+  if (filteredConditions.length === 0) return query;
+
   if (!/from/i.test(query)) return query;
 
   let whereIdx = -1;
@@ -151,11 +169,11 @@ function injectWhereConditions(query = '', conditions = [], filters = [], metada
     }
   }
 
-  const joinConditions = activeConditions.join(' AND ');
+  const joinConditions = filteredConditions.join(' AND ');
 
   if (whereIdx !== -1) {
     const insertPos = whereIdx + 5;
-    return query.slice(0, insertPos) + ' (' + joinConditions + ') AND ' + query.slice(insertPos);
+    return query.slice(0, insertPos) + ' ' + joinConditions + ' AND ' + query.slice(insertPos);
   } else {
     let insertPos = query.length;
     parenDepth = 0;
@@ -212,6 +230,135 @@ function normalizeDimension(dim) {
   return dim;
 }
 
+function normalizeStaticValues(values = []) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .filter(value => value !== undefined && value !== null && value !== '')
+    .map(value => Array.isArray(value) ? value : [value]);
+}
+
+function normalizeStaticConfig(config = null) {
+  const values = normalizeStaticValues(config?.values || []);
+  return values.length > 0 ? { ...(config || {}), values } : null;
+}
+
+function normalizeStaticDefault(defaultValue) {
+  if (defaultValue === undefined || defaultValue === null || defaultValue === '') return null;
+  return Array.isArray(defaultValue) ? defaultValue : [defaultValue];
+}
+
+function isStaticListConfig(sourceType, sourceConfig) {
+  return sourceType === 'static-list' && normalizeStaticValues(sourceConfig?.values || []).length > 0;
+}
+
+function isPeriodLikeFilter(filter = {}) {
+  const raw = `${filter.slug || ''} ${filter.name || ''}`.toLowerCase();
+  return raw.includes('period') || raw.includes('time_group') || raw.includes('time group');
+}
+
+function getTagSourceType(tag = {}) {
+  return tag.values_source_type || tag['values-source-type'] || null;
+}
+
+function getTagSourceConfig(tag = {}) {
+  return tag.values_source_config || tag['values-source-config'] || null;
+}
+
+function getTagDisplayName(name, tag = {}) {
+  return tag['display-name'] || tag.display_name || tag.name || name.replace(/_/g, ' ');
+}
+
+function createFilterFromTemplateTag(name, tag = {}) {
+  const sourceType = getTagSourceType(tag);
+  const sourceConfig = normalizeStaticConfig(getTagSourceConfig(tag));
+  const type = tag['widget-type'] || tag.widget_type || (tag.type === 'number' ? 'number/=' : tag.type === 'date' ? 'date/all-options' : 'string/=');
+  const filter = {
+    id: tag.id || name,
+    name: getTagDisplayName(name, tag),
+    slug: name,
+    type,
+    sectionId: type.split('/')[0],
+    required: Boolean(tag.required),
+  };
+
+  if (sourceType === 'static-list' && sourceConfig) {
+    filter.values_source_type = 'static-list';
+    filter.values_source_config = sourceConfig;
+    filter.values_query_type = 'list';
+    filter.isMultiSelect = false;
+  }
+  if (tag.temporal_units) {
+    filter.temporal_units = tag.temporal_units;
+  }
+  if (tag.target) {
+    filter.target = tag.target;
+  }
+
+  const defaultValue = filter.values_source_type === 'static-list'
+    ? normalizeStaticDefault(tag.default)
+    : tag.default;
+  if (defaultValue !== undefined && defaultValue !== null) {
+    filter.default = defaultValue;
+  }
+
+  return filter;
+}
+
+function findDashboardFilterForTag(tagName, filters = [], preferredId = null) {
+  if (preferredId) {
+    const byId = filters.find(f => f.id === preferredId || f.slug === preferredId);
+    if (byId) return byId;
+  }
+
+  const byTarget = filters.find(f => f.target?.[1]?.[1] === tagName);
+  if (byTarget) return byTarget;
+
+  const exact = filters.find(f =>
+    f.slug === tagName ||
+    (f.name && f.name.toLowerCase().replace(/\s+/g, '_') === tagName.toLowerCase())
+  );
+  if (exact) return exact;
+
+  if (tagName === 'reporting_period') {
+    const periodStatic = filters.find(f =>
+      isPeriodLikeFilter(f) &&
+      f.values_source_type === 'static-list' &&
+      normalizeStaticConfig(f.values_source_config)
+    );
+    if (periodStatic) return periodStatic;
+  }
+
+  return findFilterForTag(tagName, filters);
+}
+
+function ensureTemplateTagDashboardFilters(cards = [], filters = []) {
+  const effective = [...(filters || [])];
+
+  cards.forEach(card => {
+    const names = extractTemplateNames(card.query || '');
+    names.forEach(name => {
+      const existing = findDashboardFilterForTag(name, effective);
+      if (existing) return;
+
+      const tag = card.templateTags?.[name];
+      if (!tag) return;
+
+      const sourceType = getTagSourceType(tag);
+      const sourceConfig = normalizeStaticConfig(getTagSourceConfig(tag));
+      const shouldPromote = name === 'reporting_period' || isStaticListConfig(sourceType, sourceConfig);
+      if (!shouldPromote) return;
+
+      effective.push(createFilterFromTemplateTag(name, {
+        ...tag,
+        values_source_type: sourceType,
+        values_source_config: sourceConfig,
+      }));
+    });
+  });
+
+  return effective;
+}
+
 /**
  * Build template tags for a native SQL query card.
  * 
@@ -255,7 +402,7 @@ function buildTemplateTags(card, filters = []) {
     const tagObj = {
       id: existing[name]?.id || name,
       name,
-      'display-name': existing[name]?.['display-name'] || existing[name]?.display_name || name.replace(/_/g, ' '),
+      'display-name': getTagDisplayName(name, existing[name]),
       type: tagType,
       required: Boolean(existing[name]?.required),
       ...existing[name],
@@ -266,8 +413,8 @@ function buildTemplateTags(card, filters = []) {
 
     // Preserve card-level dropdown configs (question-specific filters like reporting_period)
     // Handle both underscored (our format) and hyphenated (Metabase format) keys
-    const srcType = existing[name]?.values_source_type || existing[name]?.['values-source-type'];
-    const srcConfig = existing[name]?.values_source_config || existing[name]?.['values-source-config'];
+    const srcType = getTagSourceType(existing[name]);
+    const srcConfig = normalizeStaticConfig(getTagSourceConfig(existing[name]));
     if (srcType) {
       // Write both formats for compatibility
       tagObj['values-source-type'] = srcType;
@@ -278,9 +425,9 @@ function buildTemplateTags(card, filters = []) {
 
     // Preserve default value from card-level tag or dashboard filter
     if (existing[name]?.default != null) {
-      tagObj.default = existing[name].default;
+      tagObj.default = srcType === 'static-list' ? normalizeStaticDefault(existing[name].default) : existing[name].default;
     } else if (filter?.default != null) {
-      tagObj.default = filter.default;
+      tagObj.default = filter.values_source_type === 'static-list' ? normalizeStaticDefault(filter.default) : filter.default;
     }
 
     if (tagType === 'dimension') {
@@ -314,19 +461,8 @@ function buildTemplateTags(card, filters = []) {
 function normalizeParameter(filter) {
   const slug = filter.slug || (filter.name || 'filter').toLowerCase().replace(/\s+/g, '_');
   const type = filter.type || 'string/=';
-  const hasStaticValues = filter.values_source_type === 'static-list' && 
-                          filter.values_source_config && 
-                          Array.isArray(filter.values_source_config.values) && 
-                          filter.values_source_config.values.length > 0;
-
-  let valuesConfig = null;
-  if (hasStaticValues) {
-    const formattedValues = filter.values_source_config.values.map(val => {
-      if (Array.isArray(val)) return val;
-      return [val];
-    });
-    valuesConfig = { values: formattedValues };
-  }
+  const valuesConfig = normalizeStaticConfig(filter.values_source_config);
+  const hasStaticValues = filter.values_source_type === 'static-list' && !!valuesConfig;
 
   // NOTE: Do NOT include `target` here — Metabase's parameter validator
   // crashes (ClassCastException) when it encounters a `target` on dashboard-level
@@ -341,7 +477,7 @@ function normalizeParameter(filter) {
 
   // Only include optional fields if they have meaningful values
   if (filter.default !== undefined && filter.default !== null) {
-    param.default = filter.default;
+    param.default = hasStaticValues ? normalizeStaticDefault(filter.default) : filter.default;
   }
   if (filter.required) {
     param.required = true;
@@ -349,6 +485,10 @@ function normalizeParameter(filter) {
   if (hasStaticValues) {
     param.values_source_type = 'static-list';
     param.values_source_config = valuesConfig;
+    param.values_query_type = filter.values_query_type || 'list';
+  }
+  if (Array.isArray(filter.temporal_units) && filter.temporal_units.length > 0) {
+    param.temporal_units = filter.temporal_units;
   }
 
   // Preserve filteringParameters (linked filter dependencies)
@@ -374,6 +514,50 @@ function normalizeParameterMapping(mapping, cardId) {
   };
 }
 
+function buildCardParameters(compiledTags = {}, finalMappings = [], filters = []) {
+  return Object.entries(compiledTags).map(([tagName, tag]) => {
+    const mapping = finalMappings.find(m => m.target?.[1]?.[1] === tagName);
+    const filter = mapping
+      ? findDashboardFilterForTag(tagName, filters, mapping.parameter_id)
+      : findDashboardFilterForTag(tagName, filters);
+    const sourceType = getTagSourceType(tag) || filter?.values_source_type;
+    const sourceConfig = normalizeStaticConfig(getTagSourceConfig(tag) || filter?.values_source_config);
+    const type = tag.type === 'dimension'
+      ? (tag['widget-type'] || filter?.type || 'string/=')
+      : (filter?.type || tag['widget-type'] || (tag.type === 'number' ? 'number/=' : tag.type === 'date' ? 'date/all-options' : 'string/='));
+
+    const parameter = {
+      id: tag.id || filter?.id || tagName,
+      name: getTagDisplayName(tagName, tag),
+      slug: tagName,
+      type,
+      target: mapping?.target || (tag.type === 'dimension'
+        ? ['dimension', ['template-tag', tagName], { 'stage-number': 0 }]
+        : ['variable', ['template-tag', tagName]]),
+      required: Boolean(tag.required || filter?.required),
+    };
+
+    const defaultValue = tag.default ?? filter?.default;
+    if (defaultValue !== undefined && defaultValue !== null) {
+      parameter.default = sourceType === 'static-list' ? normalizeStaticDefault(defaultValue) : defaultValue;
+    }
+
+    if (sourceType === 'static-list' && sourceConfig) {
+      parameter.values_source_type = 'static-list';
+      parameter.values_source_config = sourceConfig;
+      parameter.values_query_type = 'list';
+      parameter.isMultiSelect = filter?.isMultiSelect ?? false;
+    } else if (filter?.isMultiSelect !== undefined) {
+      parameter.isMultiSelect = filter.isMultiSelect;
+    }
+    if (Array.isArray(filter?.temporal_units) && filter.temporal_units.length > 0) {
+      parameter.temporal_units = filter.temporal_units;
+    }
+
+    return parameter;
+  });
+}
+
 /**
  * existingIds shape (stored in DB after first publish):
  * {
@@ -384,8 +568,8 @@ function normalizeParameterMapping(mapping, cardId) {
  */
 async function publish(dashboardConfig, existingIds = null) {
   const { collection = {}, dashboard = {}, cards = [], filters = [], groups = [] } = dashboardConfig || {};
-  const safeFilters = filters || [];
   const safeCards = cards || [];
+  const safeFilters = ensureTemplateTagDashboardFilters(safeCards, filters || []);
   const safeGroups = groups || [];
   const safeTabs = dashboard.tabs || [];
   const isUpdate = !!(existingIds?.dashboardId);
@@ -484,7 +668,47 @@ async function publish(dashboardConfig, existingIds = null) {
   const prevCardIds = existingIds?.cardIds || {};
   const newCardIds = {};
   const dashcards = [];
-  const parameters = safeFilters.map(normalizeParameter);
+  // Resolve dashboard filters and let them inherit static dropdown configurations 
+  // from their mapped card-level template tags if the dashboard-level filter config lacks it.
+  const parameters = safeFilters.map(filter => {
+    let values_source_type = filter.values_source_type;
+    let values_source_config = filter.values_source_config;
+
+    if (!values_source_type || values_source_type !== 'static-list') {
+      for (const card of safeCards) {
+        const mappings = card.parameterMappings || [];
+        const mapping = mappings.find(m => {
+          if (m.parameter_id === filter.id) return true;
+          const tagName = m.target?.[1]?.[1];
+          if (tagName) {
+            return filter.slug === tagName || 
+                   (filter.name && filter.name.toLowerCase().replace(/\s+/g, '_') === tagName.toLowerCase()) ||
+                   filter.target?.[1]?.[1] === tagName;
+          }
+          return false;
+        });
+        if (mapping) {
+          const tagName = mapping.target?.[1]?.[1];
+          if (tagName && card.templateTags?.[tagName]) {
+            const tag = card.templateTags[tagName];
+            const hasStaticValues = tag.values_source_type === 'static-list' || tag['values-source-type'] === 'static-list';
+            const staticConfig = normalizeStaticConfig(tag.values_source_config || tag['values-source-config']);
+            if (hasStaticValues && staticConfig?.values?.length > 0) {
+              values_source_type = 'static-list';
+              values_source_config = staticConfig;
+              break;
+            }
+          }
+        }
+      }
+    }
+
+    return normalizeParameter({
+      ...filter,
+      values_source_type,
+      values_source_config,
+    });
+  });
 
   for (const card of safeCards) {
     if (!card.query?.trim()) {
@@ -510,15 +734,12 @@ async function publish(dashboardConfig, existingIds = null) {
     const finalMappings = [];
     // Heal parameter_id in existing mappings if there is a mismatch (e.g. from cloning)
     (card.parameterMappings || []).forEach(mapping => {
-      let filter = safeFilters.find(f => f.id === mapping.parameter_id);
-      if (!filter) {
-        const tagName = mapping.target?.[1]?.[1];
-        if (tagName) {
-          filter = findFilterForTag(tagName, safeFilters);
-        }
-      }
+      const tagName = mapping.target?.[1]?.[1];
+      const filter = tagName
+        ? findDashboardFilterForTag(tagName, safeFilters, mapping.parameter_id)
+        : safeFilters.find(f => f.id === mapping.parameter_id || f.slug === mapping.parameter_id);
+
       if (filter) {
-        const tagName = mapping.target?.[1]?.[1];
         finalMappings.push({
           parameter_id: filter.id || filter.slug,
           target: tagName ? buildMappingTarget(tagName) : mapping.target,
@@ -531,7 +752,7 @@ async function publish(dashboardConfig, existingIds = null) {
     extractedTags.forEach(tagName => {
       const exists = finalMappings.some(m => m.target?.[1]?.[1] === tagName);
       if (!exists) {
-        const matchingFilter = findFilterForTag(tagName, safeFilters);
+        const matchingFilter = findDashboardFilterForTag(tagName, safeFilters);
         if (matchingFilter) {
           finalMappings.push({
             parameter_id: matchingFilter.id || matchingFilter.slug,
@@ -541,9 +762,12 @@ async function publish(dashboardConfig, existingIds = null) {
       }
     });
 
+    const cardParameters = buildCardParameters(compiledTags, finalMappings, safeFilters);
+
     const cardPayload = {
       name: card.title || 'Untitled Card',
       display: card.type || 'table',
+      parameters: cardParameters,
       dataset_query: {
         type: 'native',
         native: { 
@@ -572,6 +796,70 @@ async function publish(dashboardConfig, existingIds = null) {
 
     newCardIds[card.id] = metabaseCardId;
 
+    // Heal inline parameter IDs to match their compiled/updated filter parameter IDs
+    const healedInlineParams = (card.inlineParameters || card.inline_parameters || [])
+      .map(oldId => {
+        let filter = safeFilters.find(f => f.id === oldId);
+        if (!filter) {
+          const mapping = (card.parameterMappings || []).find(m => m.parameter_id === oldId);
+          const tagName = mapping?.target?.[1]?.[1];
+          if (tagName) {
+            filter = safeFilters.find(f => 
+              f.slug === tagName || 
+              (f.name && f.name.toLowerCase().replace(/\s+/g, '_') === tagName.toLowerCase())
+            ) || findFilterForTag(tagName, safeFilters);
+          }
+        }
+        if (filter) {
+          return filter.id || filter.slug;
+        }
+        const healedMapping = finalMappings.find(m => m.parameter_id === oldId);
+        if (healedMapping) {
+          return healedMapping.parameter_id;
+        }
+        return oldId;
+      })
+      .filter(Boolean);
+    const existingInlineTags = new Set(
+      healedInlineParams
+        .map(id => finalMappings.find(mapping => mapping.parameter_id === id)?.target?.[1]?.[1])
+        .filter(Boolean)
+    );
+    const staticVariableMappingsByTag = new Map();
+    finalMappings.forEach(mapping => {
+      const tagName = mapping.target?.[1]?.[1];
+      const filter = tagName
+        ? findDashboardFilterForTag(tagName, safeFilters, mapping.parameter_id)
+        : safeFilters.find(f => f.id === mapping.parameter_id || f.slug === mapping.parameter_id);
+      const tag = tagName ? compiledTags[tagName] : null;
+      const isStaticVariable = mapping.target?.[0] === 'variable' && (
+        filter?.values_source_type === 'static-list' ||
+        getTagSourceType(tag) === 'static-list'
+      );
+      if (isStaticVariable && tagName && mapping.parameter_id) {
+        const current = staticVariableMappingsByTag.get(tagName) || [];
+        current.push({ mapping, filter });
+        staticVariableMappingsByTag.set(tagName, current);
+      }
+    });
+    staticVariableMappingsByTag.forEach((candidates, tagName) => {
+      if (existingInlineTags.has(tagName)) return;
+      const best = candidates
+        .slice()
+        .sort((a, b) => {
+          const score = item => (
+            (Array.isArray(item.filter?.temporal_units) ? 4 : 0) +
+            (isPeriodLikeFilter(item.filter) ? 2 : 0) +
+            (item.filter?.slug === tagName ? 1 : 0)
+          );
+          return score(b) - score(a);
+        })[0];
+      const parameterId = best?.mapping?.parameter_id;
+      if (parameterId && !healedInlineParams.includes(parameterId)) {
+        healedInlineParams.push(parameterId);
+      }
+    });
+
     const dashcard = {
       id: -(dashcards.length + 1),
       card_id: metabaseCardId,
@@ -584,6 +872,7 @@ async function publish(dashboardConfig, existingIds = null) {
       parameter_mappings: (finalMappings || [])
         .filter(mapping => mapping.parameter_id && Array.isArray(mapping.target))
         .map(mapping => normalizeParameterMapping(mapping, metabaseCardId)),
+      inline_parameters: healedInlineParams,
     };
     if (card.tabIndex !== undefined && card.tabIndex >= 0 && card.tabIndex < safeTabs.length) {
       dashcard.dashboard_tab_id = -(card.tabIndex + 1);

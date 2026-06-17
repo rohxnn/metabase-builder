@@ -435,6 +435,32 @@ export default function ConfigPanel() {
                 Required
               </label>
 
+              <div style={styles.linkedFiltersSection}>
+                <span style={styles.linkedFiltersTitle}>🔗 Limit choices by:</span>
+                {filters.filter(other => other.id !== f.id).map(other => {
+                  const isChecked = (f.filteringParameters || []).includes(other.id);
+                  return (
+                    <label key={other.id} style={styles.linkedFilterLabel}>
+                      <input 
+                        type="checkbox" 
+                        checked={isChecked} 
+                        onChange={e => {
+                          const current = f.filteringParameters || [];
+                          const updated = e.target.checked 
+                            ? [...current, other.id] 
+                            : current.filter(id => id !== other.id);
+                          dispatch(actions.updateFilter({ ...f, filteringParameters: updated }));
+                        }} 
+                      />
+                      {other.name || other.slug}
+                    </label>
+                  );
+                })}
+                {filters.filter(other => other.id !== f.id).length === 0 && (
+                  <span style={styles.noFiltersText}>No other filters to link</span>
+                )}
+              </div>
+
               {f.values_source_type === 'static-list' && (
                 <div style={styles.staticSection}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
@@ -730,6 +756,10 @@ const styles = {
   customForm: { border: '1px solid #cbd5e1', borderRadius: 10, padding: 16, marginTop: 10, background: '#fff', boxShadow: '0 2px 6px rgba(0,0,0,0.05)' },
   staticSection: { marginTop: 12, borderTop: '1px dashed #e2e8f0', paddingTop: 10 },
   staticTitle: { fontSize: 10, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.03em' },
-  staticOptionBadge: { display: 'inline-flex', alignItems: 'center', gap: 4, background: '#e0e7ff', color: '#3730a3', padding: '3px 8px', borderRadius: 5, fontSize: 11, fontWeight: 600, border: '1px solid #c7d2fe' },
+   staticOptionBadge: { display: 'inline-flex', alignItems: 'center', gap: 4, background: '#e0e7ff', color: '#3730a3', padding: '3px 8px', borderRadius: 5, fontSize: 11, fontWeight: 600, border: '1px solid #c7d2fe' },
   deleteBadgeCross: { cursor: 'pointer', color: '#4f46e5', fontWeight: 700, fontSize: 10, marginLeft: 3 },
+  linkedFiltersSection: { marginTop: 12, borderTop: '1px dashed #e2e8f0', paddingTop: 10, display: 'flex', flexDirection: 'column', gap: 6 },
+  linkedFiltersTitle: { fontSize: 10, fontWeight: 700, color: '#475569', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.03em' },
+  linkedFilterLabel: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: '#475569', fontWeight: 500, cursor: 'pointer' },
+  noFiltersText: { fontSize: 11, color: '#94a3b8', fontStyle: 'italic' },
 };

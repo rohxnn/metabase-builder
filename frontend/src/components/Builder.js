@@ -10,7 +10,21 @@ export default function Builder({ onBack }) {
   const dispatch = useDispatch();
   const state = useSelector(s => s.builder);
   const tabs = state.config.dashboard.tabs;
-  const [activeTab, setActiveTab] = useState(null); // null = no tabs / all
+  const [activeTab, setActiveTab] = useState(tabs.length > 0 ? 0 : null);
+
+  useEffect(() => {
+    if (tabs.length === 0) {
+      if (activeTab !== null) {
+        setActiveTab(null);
+      }
+    } else {
+      if (activeTab === null) {
+        setActiveTab(0);
+      } else if (activeTab >= tabs.length) {
+        setActiveTab(tabs.length - 1);
+      }
+    }
+  }, [tabs, activeTab]);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState(null);
@@ -198,9 +212,6 @@ export default function Builder({ onBack }) {
       {/* Tab bar */}
       {tabs.length > 0 && (
         <div style={styles.tabBar}>
-          <button style={{ ...styles.tab, ...(activeTab === null ? styles.activeTab : {}) }} onClick={() => setActiveTab(null)}>
-            All
-          </button>
           {tabs.map((tab, i) => (
             <button key={i} style={{ ...styles.tab, ...(activeTab === i ? styles.activeTab : {}) }} onClick={() => setActiveTab(i)}>
               {tab.name}

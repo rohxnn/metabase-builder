@@ -240,12 +240,8 @@ export default function DashboardList({ onOpen, onCreate }) {
     const rawCards = pickDashcards(remote);
     const filtersBySlug = new Map();
     asArray(remote.parameters).forEach(parameter => {
+      // Keep dashboard parameters, including static dropdowns mapping to variable targets
       const slug = parameter.slug || parameter.id;
-      // Skip question-only parameters (e.g. reporting_period with static-list values)
-      // These live in the card's templateTags, not as dashboard-level filters
-      const isStaticDropdown = parameter.values_source_type === 'static-list';
-      const isVariableTarget = parameter.target?.[0] === 'variable';
-      if (isStaticDropdown && isVariableTarget) return;
 
       let values = parameter.values_source_config?.values || [];
       if (Array.isArray(values)) {
@@ -261,6 +257,11 @@ export default function DashboardList({ onOpen, onCreate }) {
         sectionId: parameter.sectionId || parameter.section_id || 'string',
         values_source_type: parameter.values_source_type || null,
         values_source_config,
+        values_query_type: parameter.values_query_type || null,
+        temporal_units: parameter.temporal_units || null,
+        target: parameter.target || null,
+        isMultiSelect: parameter.isMultiSelect,
+        filteringParameters: parameter.filteringParameters || parameter.filtering_parameters || [],
         required: Boolean(parameter.required),
         default: parameter.default ?? null,
       });
@@ -310,6 +311,7 @@ export default function DashboardList({ onOpen, onCreate }) {
         tabIndex: tabIdToIndex.has(dashboardTabId) ? tabIdToIndex.get(dashboardTabId) : undefined,
         dashboardTabId: dashboardTabId || null,
         parameterMappings: item.parameter_mappings || card.parameter_mappings || [],
+        inlineParameters: item.inline_parameters || [],
         templateTags,
       };
     });
