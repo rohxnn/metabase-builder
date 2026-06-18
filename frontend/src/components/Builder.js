@@ -5,6 +5,7 @@ import { saveDashboard, publishDashboard, listDatabases, getDatabaseMetadata } f
 import CardPalette from './CardPalette';
 import DashboardCanvas from './DashboardCanvas';
 import ConfigPanel from './ConfigPanel';
+import CardEditor from './CardEditor';
 
 export default function Builder({ onBack }) {
   const dispatch = useDispatch();
@@ -28,6 +29,7 @@ export default function Builder({ onBack }) {
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState(null);
+  const [addingNewQuestion, setAddingNewQuestion] = useState(false);
 
   useEffect(() => {
     const fetchMeta = async () => {
@@ -193,9 +195,10 @@ export default function Builder({ onBack }) {
         </button>
         <div className="flex items-center gap-3 flex-1">
           <input
-            className="text-lg font-bold border border-transparent hover:border-slate-200 focus:border-slate-300 outline-none bg-transparent min-w-[250px] text-slate-900 py-1 px-2 rounded-md transition-all focus:bg-slate-50"
+            className="text-lg font-bold border border-transparent hover:border-slate-200 focus:border-slate-300 outline-none bg-transparent min-w-[250px] text-slate-900 py-1 px-2 rounded-md transition-all focus:bg-slate-50 disabled:hover:border-transparent"
             value={state.name}
             onChange={e => dispatch(actions.setMeta({ name: e.target.value }))}
+            disabled={state.previewMode}
           />
           <span
             className={`text-[10px] py-1 px-2.5 rounded-full font-semibold uppercase tracking-wider ${
@@ -214,25 +217,42 @@ export default function Builder({ onBack }) {
             {message.text}
           </span>
         )}
-        <button
-          className="py-2 px-4 border border-slate-300 rounded-lg bg-white cursor-pointer text-xs font-semibold text-slate-700 transition-all hover:bg-slate-50 hover:border-slate-400 disabled:opacity-50"
-          onClick={handleSave}
-          disabled={saving}
-        >
-          {saving ? 'Saving…' : 'Save Draft'}
-        </button>
-        <button
-          className="py-2 px-5 border-none rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 text-white cursor-pointer font-bold text-xs shadow-md hover:from-emerald-600 hover:to-emerald-700 hover:shadow-lg transition-all disabled:opacity-50"
-          onClick={handlePublish}
-          disabled={publishing}
-        >
-          {publishing ? 'Publishing…' : '🚀 Publish to Metabase'}
-        </button>
+        {state.previewMode ? (
+          <button
+            className="py-2 px-4 border border-indigo-300 rounded-lg bg-indigo-50 cursor-pointer text-xs font-semibold text-indigo-600 transition-all hover:bg-indigo-100"
+            onClick={() => dispatch(actions.setPreviewMode(false))}
+          >
+            📝 Exit Preview
+          </button>
+        ) : (
+          <>
+            <button
+              className="py-2 px-4 border border-slate-300 rounded-lg bg-white cursor-pointer text-xs font-semibold text-slate-700 transition-all hover:bg-slate-50 hover:border-slate-400"
+              onClick={() => dispatch(actions.setPreviewMode(true))}
+            >
+              👁️ Preview Mode
+            </button>
+            <button
+              className="py-2 px-4 border border-slate-300 rounded-lg bg-white cursor-pointer text-xs font-semibold text-slate-700 transition-all hover:bg-slate-50 hover:border-slate-400 disabled:opacity-50"
+              onClick={handleSave}
+              disabled={saving}
+            >
+              {saving ? 'Saving…' : 'Save Draft'}
+            </button>
+            <button
+              className="py-2 px-5 border-none rounded-lg bg-gradient-to-r from-emerald-500 to-emerald-600 text-white cursor-pointer font-bold text-xs shadow-md hover:from-emerald-600 hover:to-emerald-700 hover:shadow-lg transition-all disabled:opacity-50"
+              onClick={handlePublish}
+              disabled={publishing}
+            >
+              {publishing ? 'Publishing…' : '🚀 Publish to Metabase'}
+            </button>
+          </>
+        )}
       </div>
 
       {/* Tab bar */}
       {tabs.length > 0 && (
-        <div className="flex gap-1.5 py-2.5 px-6 bg-slate-50 border-b border-slate-200">
+        <div className="flex items-center gap-1.5 py-2.5 px-6 bg-slate-50 border-b border-slate-200">
           {tabs.map((tab, i) => {
             const isActive = activeTab === i;
             return (
@@ -249,15 +269,45 @@ export default function Builder({ onBack }) {
               </button>
             );
           })}
+          {!state.previewMode && (
+            <button
+              onClick={() => setAddingNewQuestion(true)}
+              className="ml-auto w-7 h-7 flex items-center justify-center rounded-full border border-dashed border-slate-300 bg-white text-slate-500 hover:text-indigo-600 hover:border-indigo-500 hover:bg-indigo-50/30 transition-all font-bold text-base cursor-pointer shadow-sm"
+              title="Add Question"
+            >
+              +
+            </button>
+          )}
         </div>
       )}
 
       {/* Main area */}
       <div className="flex flex-1 overflow-hidden">
-        <CardPalette onAdd={card => dispatch(actions.addCard({ ...card, tabIndex: activeTab ?? undefined }))} />
+        {!state.previewMode && (
+          <CardPalette onAdd={card => dispatch(actions.addCard({ ...card, tabIndex: activeTab ?? undefined }))} />
+        )}
         <DashboardCanvas activeTab={activeTab} />
-        <ConfigPanel />
+        {!state.previewMode && <ConfigPanel />}
       </div>
+
+      {addingNewQuestion && (
+        <CardEditor
+          card={{
+            title: 'New Question',
+            type: 'table',
+            query: '',
+            parameterMappings: [],
+            templateTags: {},
+            tabIndex: activeTab ?? undefined,
+          }}
+          filters={filters}
+          onSave={newCard => {
+            dispatch(actions.addCard(newCard));
+            setAddingNewQuestion(false);
+          }}
+          onClose={() => setAddingNewQuestion(false)}
+        />
+      )}
     </div>
   );
 }

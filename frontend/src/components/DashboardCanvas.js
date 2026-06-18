@@ -6,8 +6,8 @@ import { useDispatch, useSelector } from 'react-redux';
 
 const ReactGridLayout = WidthProvider(GridLayout);
 import { actions } from '../store';
-import { runQuery } from '../services/api';
-import { toPreviewSql, injectWhereConditions } from '../services/queryPreview';
+import { runQuery, getFieldValues } from '../services/api';
+import { toPreviewSql, injectWhereConditions, injectPreviewFilterValues } from '../services/queryPreview';
 import CardEditor from './CardEditor';
 import {
   ResponsiveContainer,
@@ -378,17 +378,23 @@ function CardItem({ card, onEdit, onRemove, onDuplicate }) {
   const selectedFilterId = useSelector(s => s.builder.selectedFilterId);
   const selectedFilter = useSelector(s => s.builder.config.filters.find(f => f.id === selectedFilterId));
 
+  const previewMode = useSelector(s => s.builder.previewMode);
+  const previewFilterValues = useSelector(s => s.builder.previewFilterValues) || {};
+
   useEffect(() => {
     if (selectedFilterId) return; // Skip preview query run when configuring/mapping filters
 
     if (!card.query?.trim()) { setResult(null); return; }
     setLoading(true);
-    const finalQuery = injectWhereConditions(card.query, whereConditions, filters, metadata);
+    let finalQuery = injectWhereConditions(card.query, whereConditions, filters, metadata);
+    if (previewMode) {
+      finalQuery = injectPreviewFilterValues(finalQuery, card.parameterMappings, filters, previewFilterValues, metadata);
+    }
     runQuery(toPreviewSql(finalQuery))
       .then(r => setResult(r))
       .catch(e => setResult({ error: e.response?.data?.error || e.message }))
       .finally(() => setLoading(false));
-  }, [card.query, whereConditions, filters, metadata, selectedFilterId]);
+  }, [card.query, whereConditions, filters, metadata, selectedFilterId, previewMode, previewFilterValues]);
 
   const handleRemoveMapping = () => {
     const newMappings = (card.parameterMappings || []).filter(m => m.parameter_id !== selectedFilterId);
@@ -421,7 +427,7 @@ function CardItem({ card, onEdit, onRemove, onDuplicate }) {
     <div className="bg-white/70 backdrop-blur-md border border-white/50 rounded-2xl overflow-hidden flex flex-col h-full shadow-[0_8px_30px_rgb(0,0,0,0.04),_0_1px_2px_rgb(0,0,0,0.03),_inset_0_1px_0_rgba(255,255,255,0.75)]">
       <div className="flex justify-between items-center py-2.5 px-4 bg-slate-50/40 backdrop-blur-sm border-b border-slate-200/40 shrink-0">
         <span className="text-[13px] font-bold text-slate-800 overflow-hidden text-ellipsis whitespace-nowrap">{CARD_ICONS[card.type] || '📋'} {card.title}</span>
-        {!selectedFilterId && (
+        {!selectedFilterId && !previewMode && (
           <div className="flex gap-1.5" onMouseDown={e => e.stopPropagation()}>
             <button className="bg-white/60 border border-white/80 rounded-md cursor-pointer text-xs p-1 flex items-center justify-center transition-all hover:bg-white/90 hover:border-slate-300/50 shadow-[0_1px_2px_rgba(0,0,0,0.02)]" onClick={onEdit} title="Edit">✏️</button>
             <button className="bg-white/60 border border-white/80 rounded-md cursor-pointer text-xs p-1 flex items-center justify-center transition-all hover:bg-white/90 hover:border-slate-300/50 shadow-[0_1px_2px_rgba(0,0,0,0.02)]" onClick={onDuplicate} title="Duplicate">📄</button>
@@ -466,16 +472,270 @@ function CardItem({ card, onEdit, onRemove, onDuplicate }) {
   );
 }
 
+const findForeignKeyField = (childTableObj, parentTableName) => {
+  if (!childTableObj || !parentTableName) return null;
+  const pName = parentTableName.toLowerCase();
+  const singularPName = pName.replace(/s$/, '');
+
+  let fkField = childTableObj.fields?.find(f => 
+    f.name.toLowerCase() === `${pName}_id` || 
+    f.name.toLowerCase() === `${singularPName}_id`
+  );
+
+  if (fkField) return fkField.name;
+
+  fkField = childTableObj.fields?.find(f => {
+    const name = f.name.toLowerCase();
+    if (!name.endsWith('_id')) return false;
+    const prefix = name.slice(0, -3).replace(/s$/, '');
+    return pName.startsWith(prefix) || 
+           prefix.startsWith(singularPName) || 
+           singularPName.startsWith(prefix);
+  });
+
+  return fkField ? fkField.name : null;
+};
+
+function FilterPill({ filter, value, onChange, onClear, isOpen, setIsOpen, allFilters = [], previewFilterValues = {}, metadata = null }) {
+  const [options, setOptions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [search, setSearch] = useState('');
+
+  useEffect(() => {
+    if (!isOpen || !filter.fieldId) return;
+
+    // Check if there are active parent filters
+    const activeParentFilters = (filter.filteringParameters || [])
+      .map(pId => {
+        const parentF = allFilters.find(f => f.id === pId);
+        const parentVal = previewFilterValues[pId];
+        return { parentF, parentVal };
+      })
+      .filter(p => p.parentF && p.parentVal !== undefined && p.parentVal !== null && p.parentVal !== '');
+
+    if (activeParentFilters.length > 0) {
+      setOptions([]);
+      setLoading(true);
+      const tableName = filter.tableName || filter.table_name;
+      const fieldName = filter.fieldName || filter.field_name;
+
+      if (tableName && fieldName) {
+        let sql = `SELECT DISTINCT ${tableName}.${fieldName} FROM ${tableName}`;
+        const conditions = [];
+        const joins = [];
+
+        activeParentFilters.forEach(({ parentF, parentVal }) => {
+          const pTable = parentF.tableName || parentF.table_name;
+          const pField = parentF.fieldName || parentF.field_name;
+
+          if (pTable === tableName && pField) {
+            if (Array.isArray(parentVal)) {
+              conditions.push(`${tableName}.${pField} IN (${parentVal.map(v => `'${String(v).replace(/'/g, "''")}'`).join(', ')})`);
+            } else {
+              conditions.push(`${tableName}.${pField} = '${String(parentVal).replace(/'/g, "''")}'`);
+            }
+          } else if (pTable && pField) {
+            const childTableObj = metadata?.tables?.find(t => t.name === tableName);
+            const fkFieldName = findForeignKeyField(childTableObj, pTable);
+
+            if (fkFieldName) {
+              const parentTableObj = metadata?.tables?.find(t => t.name === pTable);
+              const parentPkField = parentTableObj?.fields?.find(f => f.name.toLowerCase() === 'id')?.name || 'id';
+
+              joins.push(`JOIN ${pTable} ON ${tableName}.${fkFieldName} = ${pTable}.${parentPkField}`);
+
+              if (Array.isArray(parentVal)) {
+                conditions.push(`${pTable}.${pField} IN (${parentVal.map(v => `'${String(v).replace(/'/g, "''")}'`).join(', ')})`);
+              } else {
+                conditions.push(`${pTable}.${pField} = '${String(parentVal).replace(/'/g, "''")}'`);
+              }
+            } else {
+              const parentFieldExistsInChildTable = childTableObj?.fields?.some(f => f.name === pField);
+              if (parentFieldExistsInChildTable) {
+                if (Array.isArray(parentVal)) {
+                  conditions.push(`${tableName}.${pField} IN (${parentVal.map(v => `'${String(v).replace(/'/g, "''")}'`).join(', ')})`);
+                } else {
+                  conditions.push(`${tableName}.${pField} = '${String(parentVal).replace(/'/g, "''")}'`);
+                }
+              }
+            }
+          }
+        });
+
+        if (joins.length > 0) {
+          sql += ` ${joins.join(' ')}`;
+        }
+        if (conditions.length > 0) {
+          sql += ` WHERE ${conditions.join(' AND ')}`;
+        }
+        sql += ` ORDER BY ${tableName}.${fieldName} ASC LIMIT 1000`;
+
+        runQuery(sql)
+          .then(r => {
+            const rows = r.rows || [];
+            const values = rows.map(row => Array.isArray(row) ? row[0] : row).filter(v => v !== null && v !== undefined);
+            setOptions(values);
+          })
+          .catch(err => {
+            console.error('Failed to load linked filter options via query', err);
+            fetchUnfiltered();
+          })
+          .finally(() => setLoading(false));
+      } else {
+        fetchUnfiltered();
+      }
+    } else {
+      if (options.length > 0) return;
+      fetchUnfiltered();
+    }
+
+    function fetchUnfiltered() {
+      setLoading(true);
+      getFieldValues(filter.fieldId)
+        .then(r => setOptions(r.values || []))
+        .catch(err => console.error('Failed to load filter options', err))
+        .finally(() => setLoading(false));
+    }
+  }, [
+    isOpen,
+    filter.fieldId,
+    JSON.stringify(filter.filteringParameters),
+    JSON.stringify(previewFilterValues),
+    allFilters,
+    metadata
+  ]);
+
+  const typeIcon = filter.type?.startsWith('date') ? '📅' : '📝';
+  const displayLabel = value !== undefined && value !== null && value !== ''
+    ? `${filter.name}: ${value}`
+    : filter.name;
+
+  const isSelected = value !== undefined && value !== null && value !== '';
+
+  const staticOptions = filter.values_source_type === 'static-list'
+    ? (filter.values_source_config?.values || [])
+    : [];
+
+  const combinedOptions = [...new Set([...staticOptions, ...options])].map(String);
+  const filteredOptions = combinedOptions.filter(opt => opt.toLowerCase().includes(search.toLowerCase()));
+
+  return (
+    <div className="relative inline-block" onMouseDown={e => e.stopPropagation()}>
+      <div
+        className={`inline-flex items-center gap-1.5 py-1.5 px-3 rounded-lg border cursor-pointer text-xs font-semibold select-none transition-all shadow-sm
+          ${isSelected 
+            ? 'border-indigo-200 bg-indigo-50/50 text-indigo-700 hover:bg-indigo-100/50' 
+            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50 hover:border-slate-300'}`}
+        onClick={() => setIsOpen(isOpen ? null : filter.id)}
+      >
+        <span>{typeIcon}</span>
+        <span>{displayLabel}</span>
+        {isSelected ? (
+          <span
+            className="text-[10px] font-bold ml-1 hover:text-red-500 hover:bg-red-50 p-0.5 rounded"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClear();
+              setIsOpen(null);
+            }}
+          >
+            ✕
+          </span>
+        ) : (
+          <span className="text-[10px] text-slate-400">▼</span>
+        )}
+      </div>
+
+      {isOpen && (
+        <div className="absolute left-0 mt-1.5 bg-white border border-slate-200 rounded-xl shadow-xl z-50 p-2 min-w-[200px] max-h-[300px] flex flex-col gap-1.5 overflow-hidden">
+          {filter.type?.startsWith('date') ? (
+            <div className="p-1.5 flex flex-col gap-2">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Select Date</span>
+              <input
+                type="date"
+                className="w-full border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs outline-none focus:border-indigo-500 bg-slate-50 focus:bg-white"
+                value={value || ''}
+                onChange={e => {
+                  onChange(e.target.value);
+                  setIsOpen(null);
+                }}
+              />
+            </div>
+          ) : combinedOptions.length > 0 || loading ? (
+            <>
+              <input
+                type="text"
+                placeholder="Search options..."
+                className="w-full py-1.5 px-2.5 border border-slate-200 rounded-lg text-xs outline-none bg-slate-50 focus:bg-white focus:border-indigo-500 mb-1"
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                onClick={e => e.stopPropagation()}
+              />
+              <div className="overflow-y-auto flex-1 flex flex-col max-h-[200px] gap-0.5 pr-0.5">
+                {loading ? (
+                  <span className="text-xs text-slate-400 italic p-2">Loading options...</span>
+                ) : filteredOptions.length > 0 ? (
+                  filteredOptions.map(opt => (
+                    <div
+                      key={opt}
+                      className={`py-1.5 px-2.5 rounded-lg text-xs cursor-pointer hover:bg-indigo-50 hover:text-indigo-600 transition-all font-medium text-slate-700 ${value === opt ? 'bg-indigo-50 text-indigo-600 font-bold' : ''}`}
+                      onClick={() => {
+                        onChange(opt);
+                        setIsOpen(null);
+                      }}
+                    >
+                      {opt}
+                    </div>
+                  ))
+                ) : (
+                  <span className="text-xs text-slate-400 italic p-2">No options found</span>
+                )}
+              </div>
+            </>
+          ) : (
+            <div className="p-1.5 flex flex-col gap-2">
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Enter Filter Value</span>
+              <input
+                type="text"
+                placeholder="Type and press Enter..."
+                className="w-full border border-slate-200 rounded-lg py-1.5 px-2.5 text-xs outline-none focus:border-indigo-500 bg-slate-50 focus:bg-white"
+                value={value || ''}
+                onChange={e => onChange(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    onChange(e.target.value);
+                    setIsOpen(null);
+                  }
+                }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DashboardCanvas({ activeTab }) {
   const dispatch = useDispatch();
   const cards = useSelector(s => s.builder.config.cards).filter(
     c => activeTab === null ? true : c.tabIndex === activeTab
   );
   const filters = useSelector(s => s.builder.config.filters);
+  const metadata = useSelector(s => s.builder.metadata);
+  const allCards = useSelector(s => s.builder.config.cards) || [];
+  const mappedFilters = filters.filter(f => 
+    allCards.some(c => (c.parameterMappings || []).some(m => m.parameter_id === f.id))
+  );
   const selectedFilterId = useSelector(s => s.builder.selectedFilterId);
   const selectedFilter = useSelector(s => s.builder.config.filters.find(f => f.id === selectedFilterId));
   const [editingCard, setEditingCard] = useState(null);
 
+  const previewMode = useSelector(s => s.builder.previewMode);
+  const previewFilterValues = useSelector(s => s.builder.previewFilterValues) || {};
+  const [activeDropdownFilterId, setActiveDropdownFilterId] = useState(null);
+
+  const isReadOnly = previewMode || !!selectedFilterId;
   const layout = cards.map(c => ({ i: c.id, x: c.col, y: c.row, w: c.sizeX, h: c.sizeY }));
 
   const onLayoutChange = (newLayout) => {
@@ -496,14 +756,32 @@ export default function DashboardCanvas({ activeTab }) {
   };
 
   return (
-    <div className="flex-1 bg-slate-100 p-5 overflow-y-auto min-h-[600px]" onDragOver={e => e.preventDefault()}>
-      {cards.length === 0 && (
-        <div className="flex items-center justify-center h-[250px] text-slate-400 text-sm font-medium border-2 border-dashed border-slate-300 rounded-xl m-5">
-          <p>Drag cards from the left panel or click a card type to add</p>
+    <div className="flex-1 bg-slate-100 p-5 overflow-y-auto min-h-[600px] flex flex-col" onDragOver={e => e.preventDefault()}>
+      {previewMode && mappedFilters.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-5 p-4 bg-white border border-slate-200 rounded-2xl shadow-sm items-center shrink-0">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider mr-2">Filters:</span>
+          {mappedFilters.map(f => (
+            <FilterPill
+              key={f.id}
+              filter={f}
+              value={previewFilterValues[f.id]}
+              onChange={val => dispatch(actions.setPreviewFilterValue({ filterId: f.id, value: val }))}
+              onClear={() => dispatch(actions.clearPreviewFilterValue(f.id))}
+              isOpen={activeDropdownFilterId === f.id}
+              setIsOpen={id => setActiveDropdownFilterId(id)}
+              allFilters={filters}
+              previewFilterValues={previewFilterValues}
+              metadata={metadata}
+            />
+          ))}
         </div>
       )}
 
-
+      {cards.length === 0 && (
+        <div className="flex items-center justify-center h-[250px] text-slate-400 text-sm font-medium border-2 border-dashed border-slate-300 rounded-xl m-5">
+          <p>{previewMode ? 'This dashboard has no cards yet.' : 'Drag cards from the left panel or click a card type to add'}</p>
+        </div>
+      )}
 
       <ReactGridLayout
         className="layout"
@@ -511,9 +789,9 @@ export default function DashboardCanvas({ activeTab }) {
         cols={24}
         rowHeight={60}
         onLayoutChange={onLayoutChange}
-        isDroppable={!selectedFilterId}
-        isDraggable={!selectedFilterId}
-        isResizable={!selectedFilterId}
+        isDroppable={!isReadOnly}
+        isDraggable={!isReadOnly}
+        isResizable={!isReadOnly}
         onDrop={onDrop}
         droppingItem={{ i: '__dropping__', w: 6, h: 4 }}
       >

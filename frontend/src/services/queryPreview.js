@@ -305,3 +305,74 @@ export function injectWhereConditions(query = '', conditions = [], filters = [],
   }
 }
 
+export function injectPreviewFilterValues(query, parameterMappings = [], filters = [], filterValues = {}, metadata = null) {
+  let sql = query;
+
+  for (const mapping of parameterMappings) {
+    const filterId = mapping.parameter_id;
+    const value = filterValues[filterId];
+
+    const targetTag = mapping.target?.[1]?.[1];
+    if (!targetTag) continue;
+
+    const filterObj = filters.find(f => f.id === filterId);
+    if (!filterObj) continue;
+
+    const isDimension = mapping.target?.[0] === 'dimension';
+    const hasValue = value !== undefined && value !== null && value !== '';
+
+    // Format the value
+    let replacement = '';
+    if (hasValue) {
+      if (isDimension) {
+        let tableAndCol = '';
+        if (filterObj.fieldId && metadata?.tables) {
+          for (const table of metadata.tables) {
+            const field = table.fields?.find(f => f.id === filterObj.fieldId);
+            if (field) {
+              tableAndCol = `${table.name}.${field.name}`;
+              break;
+            }
+          }
+        }
+        if (!tableAndCol) {
+          if (filterObj.tableName && filterObj.fieldName) {
+            tableAndCol = `${filterObj.tableName}.${filterObj.fieldName}`;
+          } else {
+            tableAndCol = filterObj.slug;
+          }
+        }
+
+        if (Array.isArray(value)) {
+          replacement = `${tableAndCol} IN (${value.map(val => `'${String(val).replace(/'/g, "''")}'`).join(', ')})`;
+        } else {
+          replacement = `${tableAndCol} = '${String(value).replace(/'/g, "''")}'`;
+        }
+      } else {
+        const baseType = filterObj.type?.split('/')?.[0] || 'string';
+        if (baseType === 'number') {
+          replacement = String(value);
+        } else {
+          replacement = `'${String(value).replace(/'/g, "''")}'`;
+        }
+      }
+    }
+
+    // Replace optional blocks containing the tag: [[ ... {{tag}} ... ]]
+    const optionalRegex = new RegExp(`\\[\\[([^\\]]*?)\\{\\{\\s*${targetTag}\\s*\\}\\}([^\\]]*?)\\]\\]`, 'g');
+    if (hasValue) {
+      sql = sql.replace(optionalRegex, `$1${replacement}$2`);
+    } else {
+      sql = sql.replace(optionalRegex, '');
+    }
+
+    // Replace any remaining standalone tag (not inside optional blocks)
+    const standaloneRegex = new RegExp(`\\{\\{\\s*${targetTag}\\s*\\}\\}`, 'g');
+    if (hasValue) {
+      sql = sql.replace(standaloneRegex, replacement);
+    }
+  }
+
+  return sql;
+}
+

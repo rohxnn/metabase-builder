@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { v4 as uuidv4, v5 as uuidv5 } from 'uuid';
-import { listDashboards, deleteDashboard, publishDashboard, listMetabaseDashboards, getMetabaseDashboard, saveDashboard } from '../services/api';
+import { listDashboards, deleteDashboard, publishDashboard, listMetabaseDashboards, getMetabaseDashboard, saveDashboard, getUserInfo } from '../services/api';
 import { extractAndCleanWhereConditions } from '../services/queryPreview';
 
 const METABASE_DRAFT_NAMESPACE = '9b9c2a8b-5997-4a0c-8f72-2f8f6e2f2b5a';
@@ -22,7 +22,7 @@ const asArray = (value) => {
 const copyText = (value) => `${value || 'Untitled Dashboard'} (Duplicate)`;
 const cleanCardTitle = (title) => {
   if (!title) return '';
-  return title.replace(/\s*\(Duplicate\)/gi, '').trim();
+  return title.replace(/\s*[\(-]\s*(Duplicate|Copy)\s*\)?/gi, '').trim();
 };
 const metabaseDraftId = (id) => uuidv5(`metabase-dashboard:${id}`, METABASE_DRAFT_NAMESPACE);
 
@@ -79,6 +79,78 @@ const cloneConfig = (config = {}, name = '', description = '') => {
 };
 
 const METABASE_URL = process.env.REACT_APP_METABASE_URL || 'http://localhost:3000';
+
+const timeAgo = (dateStr) => {
+  if (!dateStr) return '';
+  const date = new Date(dateStr);
+  const now = new Date();
+  const seconds = Math.floor((now - date) / 1000);
+  if (seconds < 60) return 'Just now';
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days === 1) return 'Yesterday';
+  return `${days}d ago`;
+};
+
+const getDashboardIcon = (name = '', index = 0) => {
+  const cleanName = name.toLowerCase();
+  if (cleanName.includes('women') || cleanName.includes('insights')) {
+    return (
+      <svg className="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
+      </svg>
+    );
+  }
+  if (cleanName.includes('youth') || cleanName.includes('demographics')) {
+    return (
+      <svg className="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
+      </svg>
+    );
+  }
+  if (cleanName.includes('regional') || cleanName.includes('performance')) {
+    return (
+      <svg className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+      </svg>
+    );
+  }
+  if (cleanName.includes('financial') || cleanName.includes('health') || cleanName.includes('index')) {
+    return (
+      <svg className="w-5 h-5 text-cyan-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <circle cx="12" cy="18" r="3" stroke="currentColor" strokeWidth={2} />
+        <circle cx="6" cy="6" r="3" stroke="currentColor" strokeWidth={2} />
+        <circle cx="18" cy="6" r="3" stroke="currentColor" strokeWidth={2} />
+        <path d="M8.5 8.5l7 7M15.5 8.5l-7 7" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+      </svg>
+    );
+  }
+  
+  const icons = [
+    <svg key="0" className="w-5 h-5 text-indigo-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
+    </svg>,
+    <svg key="1" className="w-5 h-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
+      <path strokeLinecap="round" strokeLinejoin="round" d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
+    </svg>,
+    <svg key="2" className="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
+    </svg>,
+    <svg key="3" className="w-5 h-5 text-cyan-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <circle cx="12" cy="18" r="3" stroke="currentColor" strokeWidth={2} />
+      <circle cx="6" cy="6" r="3" stroke="currentColor" strokeWidth={2} />
+      <circle cx="18" cy="6" r="3" stroke="currentColor" strokeWidth={2} />
+      <path d="M8.5 8.5l7 7M15.5 8.5l-7 7" stroke="currentColor" strokeWidth={2} strokeLinecap="round" />
+    </svg>
+  ];
+  return icons[index % icons.length];
+};
+
 const getDashboardLink = (dashboard) => {
   if (dashboard.public_uuid) return `${METABASE_URL}/public/dashboard/${dashboard.public_uuid}`;
   if (dashboard.id) return `${METABASE_URL}/dashboard/${dashboard.id}`;
@@ -198,6 +270,10 @@ export default function DashboardList({ onOpen, onCreate }) {
   const [publishing, setPublishing] = useState(null);
   const [remoteLoading, setRemoteLoading] = useState(null);
   const [message, setMessage] = useState(null);
+  const [activeCategory, setActiveCategory] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState('recent');
+  const [user, setUser] = useState({ name: 'Admin', email: 'admin@metabase.com' });
 
   const load = () => {
     setLoading(true);
@@ -216,7 +292,12 @@ export default function DashboardList({ onOpen, onCreate }) {
       .finally(() => setLoading(false));
   };
 
-  useEffect(load, []);
+  useEffect(() => {
+    load();
+    getUserInfo()
+      .then(u => setUser(u))
+      .catch(() => {});
+  }, []);
 
   const handleDelete = async (id) => {
     if (!window.confirm('Delete this dashboard config?')) return;
@@ -240,6 +321,8 @@ export default function DashboardList({ onOpen, onCreate }) {
 
   const buildMetabaseDraft = async (dashboard, duplicate = false) => {
     const remote = await getMetabaseDashboard(dashboard.id);
+
+
     const tabIdToIndex = new Map(asArray(remote.tabs).map((tab, index) => [tab.id, index]));
     const rawCards = pickDashcards(remote);
     const filtersBySlug = new Map();
@@ -452,135 +535,425 @@ export default function DashboardList({ onOpen, onCreate }) {
     }
   };
 
+
+  const filteredDashboards = dashboards.filter(d =>
+    d.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    d.description?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const filteredMetabaseDashboards = metabaseDashboards.filter(d =>
+    d.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    d.description?.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  const sortedDashboards = [...filteredDashboards].sort((a, b) => {
+    if (sortBy === 'alphabetical') {
+      return (a.name || '').localeCompare(b.name || '');
+    }
+    return new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at);
+  });
+
+  const sortedMetabaseDashboards = [...filteredMetabaseDashboards].sort((a, b) => {
+    if (sortBy === 'alphabetical') {
+      return (a.name || '').localeCompare(b.name || '');
+    }
+    return new Date(b.updated_at || b.created_at) - new Date(a.updated_at || a.created_at);
+  });
+
+  const allList = [
+    ...filteredDashboards.map(d => ({ ...d, isLocal: true })),
+    ...filteredMetabaseDashboards.map(d => ({ ...d, isLocal: false }))
+  ];
+
+  const sortedAll = [...allList].sort((a, b) => {
+    if (sortBy === 'alphabetical') {
+      return (a.name || '').localeCompare(b.name || '');
+    }
+    const dateA = new Date(a.updated_at || a.created_at || 0);
+    const dateB = new Date(b.updated_at || b.created_at || 0);
+    return dateB - dateA;
+  });
+
+  const activeCount = activeCategory === 'all'
+    ? dashboards.filter(d => d.status === 'published').length + metabaseDashboards.length
+    : activeCategory === 'saved'
+      ? dashboards.filter(d => d.status === 'published').length
+      : metabaseDashboards.length;
+
+  const draftsCount = activeCategory === 'all'
+    ? dashboards.filter(d => d.status !== 'published').length
+    : activeCategory === 'saved'
+      ? dashboards.filter(d => d.status !== 'published').length
+      : 0;
+
   return (
-    <div className="py-10 px-8 max-w-[1120px] mx-auto font-sans text-slate-900 bg-slate-50 min-h-screen">
-      <div className="flex justify-between items-start gap-4 mb-6">
+    <div className="flex h-screen overflow-hidden font-sans text-slate-900 bg-slate-50">
+      {/* Left Sidebar */}
+      <div className="w-64 bg-white text-slate-700 flex flex-col justify-between shrink-0 border-r border-slate-200 shadow-sm">
+        {/* Brand / Logo */}
         <div>
-          <h2 className="m-0 text-3xl font-extrabold text-slate-900 tracking-tight">Dashboards</h2>
-          <p className="mt-2 text-slate-600 text-sm font-normal">Open, duplicate, publish, or import dashboards into the builder.</p>
+          <div className="flex items-center gap-3 py-6 px-6 border-b border-slate-200 bg-slate-50/20">
+            <span className="text-2xl">⚡</span>
+            <div>
+              <div className="text-sm font-black text-slate-900 uppercase tracking-wider">Metabase Builder</div>
+              <div className="text-[10px] text-indigo-600 font-bold tracking-widest uppercase mt-0.5">Builder Platform</div>
+            </div>
+          </div>
+
+          {/* User Profile */}
+          <div className="py-6 px-6 border-b border-slate-200 bg-slate-50/50">
+            <div className="flex items-center gap-3.5 bg-slate-100/50 border border-slate-200/50 rounded-xl p-3.5 shadow-sm">
+              <div className="relative">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-indigo-500 to-purple-600 flex items-center justify-center text-white font-bold text-sm shadow-sm border border-indigo-400/20">
+                  {user.name ? user.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase() : 'AD'}
+                </div>
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-white"></span>
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="text-xs font-bold text-slate-800 overflow-hidden text-ellipsis whitespace-nowrap" title={user.name}>{user.name}</div>
+                <div className="text-[10px] text-slate-500 font-medium overflow-hidden text-ellipsis whitespace-nowrap" title={user.email}>{user.email}</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Navigation Menu */}
+          <div className="py-6 px-4">
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest px-3 block mb-3">Dashboards</span>
+            <div className="flex flex-col gap-1">
+              <button
+                onClick={() => setActiveCategory('all')}
+                className={`flex items-center justify-between py-2.5 px-3 rounded-lg text-xs font-semibold transition-all border-none outline-none cursor-pointer w-full text-left
+                  ${activeCategory === 'all'
+                    ? 'bg-indigo-50 text-indigo-600 shadow-sm border border-indigo-100/50 font-bold'
+                    : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50 font-medium'}`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                  </svg>
+                  <span>All Dashboards</span>
+                </div>
+                <span className={`text-[10px] font-bold py-0.5 px-2 rounded-full ${activeCategory === 'all' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>
+                  {dashboards.length + metabaseDashboards.length}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setActiveCategory('saved')}
+                className={`flex items-center justify-between py-2.5 px-3 rounded-lg text-xs font-semibold transition-all border-none outline-none cursor-pointer w-full text-left
+                  ${activeCategory === 'saved'
+                    ? 'bg-indigo-50 text-indigo-600 shadow-sm border border-indigo-100/50 font-bold'
+                    : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50 font-medium'}`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                  </svg>
+                  <span>Saved Configs</span>
+                </div>
+                <span className={`text-[10px] font-bold py-0.5 px-2 rounded-full ${activeCategory === 'saved' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>
+                  {dashboards.length}
+                </span>
+              </button>
+
+              <button
+                onClick={() => setActiveCategory('metabase')}
+                className={`flex items-center justify-between py-2.5 px-3 rounded-lg text-xs font-semibold transition-all border-none outline-none cursor-pointer w-full text-left
+                  ${activeCategory === 'metabase'
+                    ? 'bg-indigo-50 text-indigo-600 shadow-sm border border-indigo-100/50 font-bold'
+                    : 'bg-transparent text-slate-600 hover:text-slate-900 hover:bg-slate-50 font-medium'}`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
+                  </svg>
+                  <span>Metabase Dashboards</span>
+                </div>
+                <span className={`text-[10px] font-bold py-0.5 px-2 rounded-full ${activeCategory === 'metabase' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-500'}`}>
+                  {metabaseDashboards.length}
+                </span>
+              </button>
+            </div>
+          </div>
         </div>
-        <button className="py-2.5 px-5.5 bg-gradient-to-r from-indigo-600 to-blue-600 text-white border-none rounded-lg cursor-pointer font-semibold text-sm shadow-md hover:shadow-lg transition-all focus:outline-none" onClick={onCreate}>+ New Dashboard</button>
       </div>
 
-      {message && (
-        <div className={`py-3 px-4.5 rounded-lg mb-4 text-sm font-medium ${
-          message.type === 'success' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
-        }`}>
-          {message.text}
-        </div>
-      )}
-
-      <section className="mb-10">
-        <div className="flex justify-between items-center gap-4 mb-4 border-b-2 border-slate-200 pb-2.5 mt-10">
-          <div>
-            <h3 className="m-0 text-xl font-bold text-slate-800">Saved Dashboard Configs</h3>
-            <p className="mt-1 text-slate-500 text-xs">Drafts and dashboards created from this builder.</p>
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col overflow-hidden bg-slate-50">
+        {/* Top Header bar */}
+        <div className="flex items-center justify-between py-4 px-8 bg-white border-b border-slate-200 shrink-0 shadow-sm">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2.5">
+              <h2 className="m-0 text-lg font-bold text-slate-900 tracking-tight">
+                {activeCategory === 'all' 
+                  ? 'All Dashboards' 
+                  : activeCategory === 'saved' 
+                    ? 'Saved Dashboard Configs' 
+                    : 'Metabase Dashboards'}
+              </h2>
+              <span className="py-0.5 px-2 bg-indigo-600 text-white text-[10px] font-black rounded-full uppercase tracking-wider">
+                {activeCategory === 'all' 
+                  ? `${dashboards.length + metabaseDashboards.length} TOTAL` 
+                  : activeCategory === 'saved' 
+                    ? `${dashboards.length} TOTAL` 
+                    : `${metabaseDashboards.length} TOTAL`}
+              </span>
+            </div>
+            <p className="m-0 mt-0.5 text-slate-500 text-xs font-medium font-sans">
+              {activeCategory === 'all'
+                ? 'Browse and manage all dashboard configurations and Metabase originals'
+                : activeCategory === 'saved'
+                  ? 'Create, manage, and edit local draft dashboard configurations'
+                  : 'Browse stable Metabase connection. Import or duplicate to local drafts'}
+            </p>
           </div>
-          <span className="min-w-[24px] h-6 flex items-center justify-center rounded-full bg-slate-200 text-slate-600 text-xs font-bold px-2">{dashboards.length}</span>
+
+          {/* Search, Sort & Action Controls */}
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="relative">
+              <input
+                type="text"
+                placeholder="Search configurations..."
+                className="py-2 pl-8 pr-4 border border-slate-200 rounded-lg text-xs outline-none bg-slate-50 focus:bg-white focus:border-indigo-500 w-[240px] transition-all font-medium text-slate-600 font-sans"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+              />
+              <span className="absolute left-2.5 top-2.5 text-slate-400 select-none pointer-events-none">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </span>
+            </div>
+
+            <div className="relative flex items-center">
+              <select
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value)}
+                className="py-2 pl-3 pr-8 border border-slate-200 rounded-lg text-xs outline-none bg-white font-semibold text-slate-600 cursor-pointer hover:border-slate-300 appearance-none font-sans"
+              >
+                <option value="recent">Sort by: Recent First</option>
+                <option value="alphabetical">Sort by: Alphabetical</option>
+              </select>
+              <span className="absolute right-2.5 pointer-events-none text-slate-400">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+              </span>
+            </div>
+
+            <button
+              className="py-2 px-4 bg-indigo-600 hover:bg-indigo-700 text-white border-none rounded-lg cursor-pointer font-bold text-xs shadow-sm hover:shadow-md transition-all outline-none font-sans"
+              onClick={onCreate}
+            >
+              New
+            </button>
+          </div>
         </div>
 
-        {loading ? <p className="text-slate-500 text-sm">Loading dashboards...</p> : (
-          <div className="grid gap-3">
-            {dashboards.map(d => (
-              <div key={d.id} className="flex justify-between items-center gap-4 border border-slate-200 rounded-xl p-5 bg-white shadow-sm transition-all hover:shadow-md">
-                <div className="min-w-0">
-                  <div className="text-base font-bold text-slate-900 overflow-hidden text-ellipsis whitespace-nowrap">{d.name}</div>
-                  {d.description && <div className="mt-1 text-slate-600 text-xs overflow-hidden text-ellipsis whitespace-nowrap">{d.description}</div>}
-                  <div className="flex flex-wrap items-center gap-3 mt-3 text-slate-500 text-xs font-semibold">
-                    <span className={`py-0.5 px-2.5 rounded-full text-[10px] font-semibold uppercase tracking-wider ${
-                      d.status === 'published' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
-                    }`}>{d.status || 'draft'}</span>
-                    {d.config?.cards && <span className="bg-indigo-50 text-indigo-700 py-0.5 px-2 rounded-full text-[10px] font-semibold">📊 {d.config.cards.length} cards</span>}
-                    {d.config?.filters && d.config.filters.length > 0 && <span className="bg-emerald-50 text-emerald-700 py-0.5 px-2 rounded-full text-[10px] font-semibold">🎛️ {d.config.filters.length} filters</span>}
-                    <span>{d.metabase_dashboard_id ? `Metabase #${d.metabase_dashboard_id}` : 'Not published'}</span>
-                    {d.updated_at && <span>Updated {new Date(d.updated_at).toLocaleString()}</span>}
+        {/* Inner Content Area */}
+        <div className="flex-1 overflow-y-auto p-8">
+          {message && (
+            <div className={`py-3 px-4.5 rounded-lg mb-6 text-xs font-semibold shadow-sm flex items-center justify-between ${
+              message.type === 'success' ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-red-50 border border-red-200 text-red-800'
+            }`}>
+              <span>{message.text}</span>
+              <button onClick={() => setMessage(null)} className="border-none bg-transparent cursor-pointer font-bold text-slate-400 hover:text-slate-600 text-xs font-sans">✕</button>
+            </div>
+          )}
+
+          <div>
+            {loading ? (
+              <p className="text-slate-500 text-sm font-sans">Loading configs...</p>
+            ) : (
+              <div className="grid gap-3.5">
+                {(activeCategory === 'all'
+                  ? sortedAll
+                  : activeCategory === 'saved'
+                    ? sortedDashboards.map(d => ({ ...d, isLocal: true }))
+                    : sortedMetabaseDashboards.map(d => ({ ...d, isLocal: false }))
+                ).map((d, index) => {
+                  const isLocal = d.isLocal;
+                  return (
+                    <div key={d.id} className="flex justify-between items-center gap-5 border border-slate-200/60 rounded-xl p-5 bg-white shadow-sm transition-all hover:shadow-md">
+                      <div className="flex items-center gap-4 min-w-0">
+                        {/* Icon Block */}
+                        <div className="w-12 h-12 flex items-center justify-center rounded-xl bg-indigo-50/70 border border-indigo-100/30 shadow-sm shrink-0">
+                          {getDashboardIcon(d.name, index)}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2.5 flex-wrap">
+                            <span className="text-sm font-bold text-slate-900 overflow-hidden text-ellipsis whitespace-nowrap" title={d.name}>{d.name || 'Untitled Dashboard'}</span>
+                            {isLocal ? (
+                              <span className={`py-0.5 px-2 rounded text-[9px] font-extrabold uppercase tracking-wider ${
+                                d.status === 'published' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-700'
+                              }`}>{d.status === 'published' ? 'PUBLISHED' : 'DRAFT'}</span>
+                            ) : (
+                              <span className="py-0.5 px-2 rounded bg-indigo-50 text-indigo-700 text-[9px] font-extrabold uppercase tracking-wider border border-indigo-200/20">METABASE</span>
+                            )}
+                          </div>
+                          {d.description && <div className="mt-1 text-slate-500 text-xs overflow-hidden text-ellipsis whitespace-nowrap max-w-[500px]" title={d.description}>{d.description}</div>}
+                          <div className="flex flex-wrap items-center gap-4 mt-2.5 text-slate-400 text-[10px] font-bold">
+                            {isLocal ? (
+                              <>
+                                <span className="flex items-center text-slate-600">
+                                  <svg className="w-3.5 h-3.5 mr-1 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+                                  </svg>
+                                  {d.config?.cards?.length || 0} cards
+                                </span>
+                                <span className="flex items-center text-slate-600">
+                                  <svg className="w-3.5 h-3.5 mr-1 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 8.293A1 1 0 013 7.586V4z" />
+                                  </svg>
+                                  {d.config?.filters?.length || 0} filters
+                                </span>
+                                {d.metabase_dashboard_id && (
+                                  <span className="py-0.5 px-1.5 bg-slate-100 text-slate-500 rounded text-[9px] font-extrabold tracking-wide border border-slate-200/30">
+                                    Metabase #{d.metabase_dashboard_id}
+                                  </span>
+                                )}
+                              </>
+                            ) : (
+                              <>
+                                <span className="text-indigo-600/70">{d.collection?.name || d.collection_name || 'Metabase Collection'}</span>
+                                <span className="py-0.5 px-1.5 bg-slate-100 text-slate-500 rounded text-[9px] font-extrabold tracking-wide border border-slate-200/30">
+                                  Metabase Original
+                                </span>
+                              </>
+                            )}
+                            {d.updated_at && <span className="italic font-medium text-slate-400">Updated {timeAgo(d.updated_at)}</span>}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex justify-end gap-2.5 items-center shrink-0 font-sans">
+                        {isLocal ? (
+                          <>
+                            <button
+                              className="flex items-center gap-1.5 py-1.5 px-3 border border-slate-200 rounded-lg text-slate-600 bg-white font-semibold hover:bg-slate-50 hover:text-slate-800 hover:border-slate-300 transition-all text-xs cursor-pointer outline-none"
+                              onClick={() => onOpen(d)}
+                              title="Edit dashboard"
+                            >
+                              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                              </svg>
+                              Edit
+                            </button>
+                            <button
+                              className="flex items-center gap-1.5 py-1.5 px-3 border border-slate-200 rounded-lg text-slate-600 bg-white font-semibold hover:bg-slate-50 hover:text-slate-800 hover:border-slate-300 transition-all text-xs cursor-pointer outline-none"
+                              onClick={() => handleDuplicateSaved(d)}
+                              title="Duplicate dashboard"
+                            >
+                              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                              </svg>
+                              Duplicate
+                            </button>
+                            <button
+                              className="flex items-center gap-1.5 py-1.5 px-3 border border-slate-200 rounded-lg text-slate-600 bg-white font-semibold hover:bg-slate-50 hover:text-slate-800 hover:border-slate-300 transition-all text-xs cursor-pointer outline-none disabled:opacity-50"
+                              onClick={() => handlePublish(d.id)}
+                              disabled={publishing === d.id}
+                              title="Publish to Metabase"
+                            >
+                              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                              </svg>
+                              {publishing === d.id ? 'Publishing...' : 'Publish'}
+                            </button>
+                            <button
+                              className="flex items-center justify-center p-2 border border-red-100 rounded-lg text-red-500 bg-red-50/50 hover:bg-red-100 hover:text-red-600 transition-all cursor-pointer outline-none"
+                              onClick={() => handleDelete(d.id)}
+                              title="Delete dashboard"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              className="flex items-center gap-1.5 py-1.5 px-3 border border-slate-200 rounded-lg text-slate-600 bg-white font-semibold hover:bg-slate-50 hover:text-slate-800 hover:border-slate-300 transition-all text-xs cursor-pointer outline-none disabled:opacity-50"
+                              onClick={() => handleEditMetabase(d)}
+                              disabled={remoteLoading === `edit-${d.id}`}
+                              title="Import & Edit draft"
+                            >
+                              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                              </svg>
+                              {remoteLoading === `edit-${d.id}` ? 'Importing...' : 'Edit'}
+                            </button>
+                            <button
+                              className="flex items-center gap-1.5 py-1.5 px-3 border border-slate-200 rounded-lg text-slate-600 bg-white font-semibold hover:bg-slate-50 hover:text-slate-800 hover:border-slate-300 transition-all text-xs cursor-pointer outline-none disabled:opacity-50"
+                              onClick={() => handleDuplicateMetabase(d)}
+                              disabled={remoteLoading === `duplicate-${d.id}`}
+                              title="Duplicate as new draft"
+                            >
+                              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7v8a2 2 0 002 2h6M8 7V5a2 2 0 012-2h4.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V15a2 2 0 01-2 2h-2M8 7H6a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2v-2" />
+                              </svg>
+                              {remoteLoading === `duplicate-${d.id}` ? 'Duplicating...' : 'Duplicate'}
+                            </button>
+                            <a
+                              href={getDashboardLink(d)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center justify-center gap-1.5 py-1.5 px-3 bg-white hover:bg-slate-50 hover:text-slate-800 border border-slate-200 hover:border-slate-300 rounded-lg text-xs font-semibold text-slate-600 shadow-sm transition-all text-decoration-none"
+                              title="View in Metabase"
+                            >
+                              <svg className="w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                              </svg>
+                              View
+                            </a>
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {/* Empty states */}
+                {activeCategory === 'all' && sortedAll.length === 0 && (
+                  <div className="border-2 border-dashed border-slate-200 rounded-2xl p-12 text-slate-400 bg-white text-center text-sm font-medium shadow-sm font-sans">
+                    No dashboards found matching search query.
                   </div>
-                </div>
-                <div className="flex justify-end gap-2 flex-wrap shrink-0">
-                  <button className="py-2 px-4 border-none rounded-lg cursor-pointer text-xs bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 transition-all" onClick={() => onOpen(d)} title="Edit dashboard">✏️ Edit</button>
-                  <button className="py-2 px-4 border border-slate-300 rounded-lg cursor-pointer text-xs bg-white text-slate-700 font-semibold transition-all hover:bg-slate-50 hover:border-slate-400" onClick={() => handleDuplicateSaved(d)} title="Duplicate dashboard">📋 Duplicate</button>
-                  <button
-                    className="py-2 px-4 border border-emerald-600 rounded-lg cursor-pointer text-xs bg-gradient-to-r from-emerald-500 to-emerald-600 text-white font-semibold shadow-sm hover:from-emerald-600 hover:to-emerald-700 transition-all disabled:opacity-50"
-                    onClick={() => handlePublish(d.id)}
-                    disabled={publishing === d.id}
-                    title="Publish to Metabase"
-                  >
-                    {publishing === d.id ? '⏳ Publishing...' : '🚀 Publish'}
-                  </button>
-                  <button
-                    className="py-2 px-4 border border-red-200 rounded-lg cursor-pointer text-xs bg-red-50 text-red-700 font-semibold transition-all hover:bg-red-100 hover:border-red-300"
-                    onClick={() => handleDelete(d.id)}
-                    title="Delete dashboard"
-                  >
-                    🗑 Delete
-                  </button>
-                </div>
+                )}
+                {activeCategory === 'saved' && sortedDashboards.length === 0 && (
+                  <div className="border-2 border-dashed border-slate-200 rounded-2xl p-12 text-slate-400 bg-white text-center text-sm font-medium shadow-sm font-sans">
+                    No saved configurations found matching search query.
+                  </div>
+                )}
+                {activeCategory === 'metabase' && sortedMetabaseDashboards.length === 0 && (
+                  <div className="border-2 border-dashed border-slate-200 rounded-2xl p-12 text-slate-400 bg-white text-center text-sm font-medium shadow-sm font-sans">
+                    No Metabase original dashboards found matching search query.
+                  </div>
+                )}
               </div>
-            ))}
-            {dashboards.length === 0 && (
-              <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-slate-500 bg-slate-50 text-center text-sm">No saved dashboards yet. Create one or import from Metabase below.</div>
             )}
           </div>
-        )}
-      </section>
-
-      <section className="mb-10">
-        <div className="flex justify-between items-center gap-4 mb-4 border-b-2 border-slate-200 pb-2.5 mt-10">
-          <div>
-            <h3 className="m-0 text-xl font-bold text-slate-800">Metabase Dashboards</h3>
-            <p className="mt-1 text-slate-500 text-xs">Edit opens a stable local draft. Duplicate creates a frontend-only copy.</p>
-          </div>
-          <span className="min-w-[24px] h-6 flex items-center justify-center rounded-full bg-slate-200 text-slate-600 text-xs font-bold px-2">{metabaseDashboards.length}</span>
         </div>
-        {loading ? (
-          <p className="text-slate-500 text-sm">Loading Metabase dashboards...</p>
-        ) : metabaseDashboards.length > 0 ? (
-          <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-5">
-            {metabaseDashboards.map(d => (
-              <div key={d.id} className="border border-slate-200 rounded-xl p-5 bg-white flex flex-col min-h-[180px] shadow-sm transition-all hover:shadow-md">
-                <div className="flex justify-between gap-2.5 items-start">
-                  <h4 className="m-0 mb-2 text-base font-bold text-slate-900 leading-snug">{d.name}</h4>
-                  <span className="py-0.5 px-2 rounded-full bg-slate-100 text-slate-500 text-[10px] font-bold shrink-0">#{d.id}</span>
-                </div>
-                {d.description && <p className="m-0 mb-4 text-xs text-slate-600 leading-relaxed">{d.description}</p>}
-                <div className="grid gap-1 text-[11px] text-slate-500 mb-4 font-semibold">
-                  <span>{d.collection?.name || d.collection_name || 'Metabase'}</span>
-                  {d.updated_at && <span>Updated {new Date(d.updated_at).toLocaleString()}</span>}
-                </div>
-                <div className="flex gap-2 flex-wrap mt-auto">
-                  <button
-                    className="py-2 px-4 border-none rounded-lg cursor-pointer text-xs bg-indigo-600 text-white font-semibold shadow-sm hover:bg-indigo-700 transition-all disabled:opacity-50"
-                    onClick={() => handleEditMetabase(d)}
-                    disabled={remoteLoading === `edit-${d.id}`}
-                    title="Edit in builder"
-                  >
-                    {remoteLoading === `edit-${d.id}` ? '⏳ Loading...' : '✏️ Edit'}
-                  </button>
-                  <button
-                    className="py-2 px-4 border border-slate-300 rounded-lg cursor-pointer text-xs bg-white text-slate-700 font-semibold transition-all hover:bg-slate-50 hover:border-slate-400 disabled:opacity-50"
-                    onClick={() => handleDuplicateMetabase(d)}
-                    disabled={remoteLoading === `duplicate-${d.id}`}
-                    title="Duplicate as new draft"
-                  >
-                    {remoteLoading === `duplicate-${d.id}` ? '⏳ Duplicating...' : '📋 Duplicate'}
-                  </button>
-                  <a
-                    href={getDashboardLink(d)}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-block py-2 px-3.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-xs font-semibold shadow-sm transition-all"
-                    title="View in Metabase"
-                  >
-                    🔗 View in Metabase
-                  </a>
-                </div>
-              </div>
-            ))}
+
+        {/* Footer Area */}
+        <div className="py-3 px-8 bg-white border-t border-slate-200 flex justify-between items-center text-xs text-slate-500 shrink-0 font-medium font-sans">
+          <div className="flex gap-4 items-center">
+            <span className="flex items-center gap-1.5 font-bold text-slate-600">
+              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+              {activeCount} Active
+            </span>
+            <span className="flex items-center gap-1.5 font-bold text-slate-600">
+              <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+              {draftsCount} Drafts
+            </span>
           </div>
-        ) : (
-          <div className="border-2 border-dashed border-slate-300 rounded-xl p-8 text-slate-500 bg-slate-50 text-center text-sm">No Metabase dashboards found.</div>
-        )}
-      </section>
+          <span className="flex items-center gap-1.5 text-slate-400 font-bold">
+            <svg className="w-3.5 h-3.5 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+            </svg>
+            All configurations synchronized with Metabase Cloud
+          </span>
+        </div>
+      </div>
     </div>
   );
 }

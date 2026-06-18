@@ -84,6 +84,7 @@ router.get('/metabase/dashboards/:id', async (req, res) => {
   }
 });
 
+
 // Get distinct values for a specific field (for populating dropdown filters)
 router.get('/metabase/field/:fieldId/values', async (req, res) => {
   try {
@@ -95,6 +96,19 @@ router.get('/metabase/field/:fieldId/values', async (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// Get user credentials info from environment
+router.get('/user', (req, res) => {
+  const email = req.app.get('config')?.metabase?.username || process.env.METABASE_USERNAME || 'admin@metabase.com';
+  const username = email.split('@')[0];
+  let name = username;
+  if (username === 'qamitraadmin') {
+    name = 'QA Mitra Admin';
+  } else {
+    name = username.charAt(0).toUpperCase() + username.slice(1);
+  }
+  res.json({ email, name });
 });
 
 // List all saved dashboard configs

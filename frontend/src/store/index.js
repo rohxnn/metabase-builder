@@ -27,6 +27,8 @@ const builderSlice = createSlice({
     error: null,
     successMessage: null,
     metadata: null,
+    previewMode: false,
+    previewFilterValues: {},
   },
   reducers: {
     loadDashboard(state, { payload }) {
@@ -35,6 +37,8 @@ const builderSlice = createSlice({
         ...state,
         ...payload,
         selectedFilterId: null,
+        previewMode: false,
+        previewFilterValues: {},
         config: {
           ...defaultConfig,
           ...config,
@@ -203,6 +207,25 @@ const builderSlice = createSlice({
     setError(state, { payload }) { state.error = payload; },
     setSuccess(state, { payload }) { state.successMessage = payload; },
     setStatus(state, { payload }) { state.status = payload; },
+    setPreviewMode(state, { payload }) {
+      state.previewMode = payload;
+      if (payload) {
+        state.previewFilterValues = {};
+        (state.config.filters || []).forEach(f => {
+          if (f.default !== undefined && f.default !== null && f.default !== '') {
+            state.previewFilterValues[f.id] = f.default;
+          }
+        });
+      } else {
+        state.previewFilterValues = {};
+      }
+    },
+    setPreviewFilterValue(state, { payload }) {
+      state.previewFilterValues[payload.filterId] = payload.value;
+    },
+    clearPreviewFilterValue(state, { payload }) {
+      delete state.previewFilterValues[payload];
+    },
   },
 });
 
