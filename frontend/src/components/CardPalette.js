@@ -149,10 +149,15 @@ export default function CardPalette({ onAdd }) {
       <div className="border-b border-slate-100 pb-4">
         <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider mb-3">📑 Tabs</div>
         {(dashboard.tabs || []).map((tab, i) => (
-          <div key={i} className="flex items-center gap-2 bg-slate-50 rounded-lg p-2.5 mb-1.5 text-xs font-semibold text-slate-700 border border-slate-200">
-            <span>{tab.name}</span>
+          <div key={i} className="flex items-center gap-2 bg-slate-50 rounded-lg p-1.5 mb-1.5 text-xs font-semibold text-slate-700 border border-slate-200">
+            <input
+              type="text"
+              className="flex-1 bg-transparent border-none outline-none font-semibold text-xs text-slate-700 py-1 px-2 rounded hover:bg-slate-100/50 focus:bg-white focus:ring-1 focus:ring-indigo-500 w-full"
+              value={tab.name}
+              onChange={e => dispatch(actions.updateTab({ index: i, name: e.target.value }))}
+            />
             <button
-              className="ml-auto bg-transparent border-none cursor-pointer text-slate-400 text-sm transition-colors hover:text-red-500 p-0.5 rounded flex items-center justify-center"
+              className="bg-transparent border-none cursor-pointer text-slate-400 text-sm transition-colors hover:text-red-500 p-0.5 rounded flex items-center justify-center mr-1"
               onClick={() => dispatch(actions.removeTab(i))}
             >
               ✕

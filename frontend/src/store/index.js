@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 const defaultConfig = {
   collection: { name: '', description: '', parentId: null },
-  dashboard: { name: '', description: '', pin: false, tabs: [] },
+  dashboard: { name: '', description: '', pin: false, tabs: [{ name: 'Tab 1' }] },
   cards: [],
   filters: [],
   groups: [],
@@ -33,6 +33,8 @@ const builderSlice = createSlice({
   reducers: {
     loadDashboard(state, { payload }) {
       const config = payload.config || defaultConfig;
+      const dashboard = config.dashboard || {};
+      const tabs = (dashboard.tabs && dashboard.tabs.length > 0) ? dashboard.tabs : [{ name: 'Tab 1' }];
       return {
         ...state,
         ...payload,
@@ -42,6 +44,11 @@ const builderSlice = createSlice({
         config: {
           ...defaultConfig,
           ...config,
+          dashboard: {
+            ...defaultConfig.dashboard,
+            ...dashboard,
+            tabs,
+          },
           whereConditions: config.whereConditions || [],
         },
         metabase_dashboard_id: payload.metabase_dashboard_id || null,
@@ -73,6 +80,12 @@ const builderSlice = createSlice({
     },
     addTab(state, { payload }) {
       state.config.dashboard.tabs.push({ name: payload });
+    },
+    updateTab(state, { payload }) {
+      const { index, name } = payload;
+      if (state.config.dashboard.tabs && state.config.dashboard.tabs[index]) {
+        state.config.dashboard.tabs[index].name = name;
+      }
     },
     removeTab(state, { payload }) {
       state.config.dashboard.tabs.splice(payload, 1);
@@ -131,11 +144,11 @@ const builderSlice = createSlice({
       state.config.cards = state.config.cards.filter(c => c.id !== payload);
     },
     addFilter(state, { payload }) {
-      const filterId = uuidv4().slice(0, 8);
+      const filterId = payload.id || uuidv4().slice(0, 8);
       state.config.filters.push({
         id: filterId,
         name: payload.name || 'New Filter',
-        slug: (payload.name || 'new_filter').toLowerCase().replace(/\s+/g, '_'),
+        slug: payload.slug || (payload.name || 'new_filter').toLowerCase().replace(/\s+/g, '_'),
         type: payload.type || 'string/=',
         sectionId: payload.sectionId || (payload.type || 'string/=').split('/')[0],
         values_source_type: payload.values_source_type || null,
@@ -173,6 +186,15 @@ const builderSlice = createSlice({
             c => c.trim() !== condText
           );
         }
+        // Clean up mappings and inline settings in all cards
+        (state.config.cards || []).forEach(card => {
+          if (card.parameterMappings) {
+            card.parameterMappings = card.parameterMappings.filter(m => m.parameter_id !== payload);
+          }
+          if (card.inlineParameters) {
+            card.inlineParameters = card.inlineParameters.filter(id => id !== payload);
+          }
+        });
       }
       if (state.selectedFilterId === payload) {
         state.selectedFilterId = null;

@@ -28,7 +28,7 @@ function App() {
       description: '',
       config: {
         collection: { name: '', description: '', parentId: null },
-        dashboard: { name: '', description: '', pin: false, tabs: [] },
+        dashboard: { name: '', description: '', pin: false, tabs: [{ name: 'Tab 1' }] },
         cards: [],
         filters: [],
         groups: [],

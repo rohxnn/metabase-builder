@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { useSelector } from 'react-redux';
+import { useDispatch, useSelector } from 'react-redux';
+import { actions } from '../store';
 import { runQuery, listDatabases, getDatabaseMetadata } from '../services/api';
-import { hasMetabaseFilters, toPreviewSql, injectWhereConditions } from '../services/queryPreview';
+import { v4 as uuidv4 } from 'uuid';
+import { hasMetabaseFilters, toPreviewSql, injectWhereConditions, extractEqualityConditions } from '../services/queryPreview';
 
 const DISPLAY_TYPES = [
   'table', 'bar', 'line', 'pie', 'scalar', 'map', 'area', 'row',
@@ -58,9 +60,37 @@ const getVarTypeLabel = (tag) => {
   return '📝 Text';
 };
 
+const findMetadataField = (metadata, tableName, fieldName) => {
+  const table = metadata?.tables?.find(t => t.name === tableName || t.display_name === tableName);
+  const field = table?.fields?.find(f => f.name === fieldName || f.display_name === fieldName);
+  return {
+    tableId: table?.id || null,
+    fieldId: field?.id || null,
+    dbId: metadata?.id || 3,
+  };
+};
+
 export default function CardEditor({ card, filters, onSave, onClose }) {
   const whereConditions = useSelector(s => s.builder.config.whereConditions) || [];
   const [form, setForm] = useState({ ...card });
+  const dispatch = useDispatch();
+
+  const handleLocalCondChange = (oldVal, newVal) => {
+    const idx = form.query.indexOf(oldVal);
+    if (idx !== -1) {
+      const updatedQuery = form.query.slice(0, idx) + newVal + form.query.slice(idx + oldVal.length);
+      setForm(f => ({ ...f, query: updatedQuery }));
+    }
+  };
+
+  const handleLocalCondDelete = (condStr) => {
+    const idx = form.query.indexOf(condStr);
+    if (idx !== -1) {
+      const updatedQuery = form.query.slice(0, idx) + '1=1' + form.query.slice(idx + condStr.length);
+      setForm(f => ({ ...f, query: updatedQuery }));
+    }
+  };
+
   const [queryResult, setQueryResult] = useState(null);
   const [queryError, setQueryError] = useState(null);
   const [running, setRunning] = useState(false);
@@ -77,6 +107,17 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
   const hasMetabaseDetails = form.metabaseCardId || form.metabaseDashcardId || form.databaseId || form.display || form.description;
 
   const variables = extractVariables(form.query || '');
+
+  const globalKeys = ['program_id', 'leader_id', 'programs.id', 'leader_category.id'];
+  const localConds = extractEqualityConditions(form.query || '').filter(ext => {
+    const lowerLhs = ext.lhs.toLowerCase();
+    const isGlobalKey = globalKeys.some(k => lowerLhs.includes(k));
+    const isGlobalCond = whereConditions.some(c => {
+      const parts = c.split('=');
+      return parts.length === 2 && parts[0].trim().toLowerCase() === lowerLhs;
+    });
+    return !isGlobalKey && !isGlobalCond;
+  });
   const reportingPeriodTag = (form.templateTags || {}).reporting_period;
   const reportingPeriodValues = (reportingPeriodTag?.values_source_config?.values || [])
     .map(value => Array.isArray(value) ? value[0] : value);
@@ -193,7 +234,7 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
     });
   };
 
-  const handleMapFilter = (variable, filterId) => {
+  const handleMapFilter = (variable, filterId, isDimensionOverride) => {
     let newMappings = [...(form.parameterMappings || [])];
     newMappings = newMappings.filter(m => m.target?.[1]?.[1] !== variable);
     
@@ -206,7 +247,7 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
     
     if (filterId) {
       const matchingFilter = (filters || []).find(f => f.id === filterId);
-      const isDimension = matchingFilter && matchingFilter.fieldId;
+      const isDimension = isDimensionOverride !== undefined ? isDimensionOverride : (matchingFilter && !!matchingFilter.fieldId);
       newMappings.push({
         parameter_id: filterId,
         target: [isDimension ? 'dimension' : 'variable', ['template-tag', variable]]
@@ -214,6 +255,123 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
     }
     set('parameterMappings', newMappings);
     set('inlineParameters', inline);
+  };
+
+  const handleCreatePredefinedFilter = (variable, typeKey) => {
+    let name = '';
+    let slug = '';
+    let tableName = '';
+    let fieldName = '';
+    let type = 'string/=';
+
+    if (typeKey === 'leader_category') {
+      name = 'Leader Category';
+      slug = 'leader_category';
+      tableName = 'leader_category';
+      fieldName = 'name';
+    } else if (typeKey === 'program') {
+      name = 'Program';
+      slug = 'program';
+      tableName = 'programs';
+      fieldName = 'name';
+    } else if (typeKey === 'state') {
+      name = 'State';
+      slug = 'state';
+      tableName = 'submissions';
+      fieldName = 'state';
+    } else if (typeKey === 'district') {
+      name = 'District';
+      slug = 'district';
+      tableName = 'submissions';
+      fieldName = 'district';
+    } else if (typeKey === 'date') {
+      name = 'Date';
+      slug = 'date';
+      tableName = 'submissions';
+      fieldName = 'created_at';
+      type = 'date/range';
+    }
+
+    const resolved = findMetadataField(metadata, tableName, fieldName);
+    const filterId = uuidv4().slice(0, 8);
+    const isDimension = !!resolved.fieldId;
+
+    dispatch(actions.addFilter({
+      id: filterId,
+      name,
+      slug,
+      type,
+      databaseId: resolved.dbId,
+      tableName,
+      fieldName,
+      fieldId: resolved.fieldId
+    }));
+
+    handleMapFilter(variable, filterId, isDimension);
+  };
+
+  const handleCreateCustomFilter = (variable, selectedFieldId) => {
+    const defaultName = variable.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    const name = prompt("Enter new dashboard filter name:", defaultName);
+    if (!name) return;
+
+    const slug = name.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '');
+    const filterId = uuidv4().slice(0, 8);
+
+    const currentTag = (form.templateTags || {})[variable] || {};
+    let type = 'string/=';
+    let tableName = null;
+    let fieldName = null;
+    let fieldId = null;
+    let isDimension = false;
+
+    if (currentTag.type === 'dimension' && selectedFieldId) {
+      const fieldIdNum = parseInt(selectedFieldId, 10);
+      let foundField = null;
+      let foundTable = null;
+      if (metadata?.tables) {
+        for (const table of metadata.tables) {
+          const field = table.fields?.find(f => f.id === fieldIdNum);
+          if (field) {
+            foundField = field;
+            foundTable = table;
+            break;
+          }
+        }
+      }
+      if (foundField && foundTable) {
+        tableName = foundTable.name;
+        fieldName = foundField.name;
+        fieldId = foundField.id;
+        isDimension = true;
+      }
+    } else if (currentTag.type === 'date') {
+      type = 'date/single';
+    } else if (currentTag.type === 'number') {
+      type = 'number/=';
+    }
+
+    dispatch(actions.addFilter({
+      id: filterId,
+      name,
+      slug,
+      type,
+      databaseId: metadata?.id || form.databaseId || 3,
+      tableName,
+      fieldName,
+      fieldId
+    }));
+
+    handleMapFilter(variable, filterId, isDimension);
+  };
+
+  const handleDeleteDashboardFilter = (filterId, variable) => {
+    const matchingFilter = (filters || []).find(f => f.id === filterId);
+    const filterName = matchingFilter ? matchingFilter.name : 'this filter';
+    if (window.confirm(`Are you sure you want to delete the dashboard filter "${filterName}"? This will remove it from the entire dashboard.`)) {
+      handleMapFilter(variable, '');
+      dispatch(actions.removeFilter(filterId));
+    }
   };
 
   const allFields = [];
@@ -294,7 +452,27 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
   const handleRemoveQuestionFilter = (slug) => {
     const existingTags = { ...(form.templateTags || {}) };
     delete existingTags[slug];
-    set('templateTags', existingTags);
+
+    let newQuery = form.query || '';
+    const escapedSlug = slug.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+
+    // Remove comment blocks: -- Question filter: ... \n -- {{slug}}
+    const commentRegex = new RegExp(`\\n?\\s*--\\s*Question filter:\\s*[^\\n]*\\n\\s*--\\s*\\{\\{\\s*${escapedSlug}\\s*\\}\\}`, 'gi');
+    newQuery = newQuery.replace(commentRegex, '');
+
+    // Remove comment tags: -- {{slug}}
+    const commentTagRegex = new RegExp(`\\n?\\s*--\\s*\\{\\{\\s*${escapedSlug}\\s*\\}\\}`, 'gi');
+    newQuery = newQuery.replace(commentTagRegex, '');
+
+    // Remove raw tags: {{slug}}
+    const rawTagRegex = new RegExp(`\\{\\{\\s*${escapedSlug}\\s*\\}\\}`, 'gi');
+    newQuery = newQuery.replace(rawTagRegex, '');
+
+    setForm(f => ({
+      ...f,
+      query: newQuery,
+      templateTags: existingTags,
+    }));
   };
 
   return (
@@ -349,13 +527,39 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
               </div>
             )}
             {whereConditions.length > 0 && (
-              <div className="mb-2 py-2 px-3 bg-slate-100 border border-slate-200 rounded-lg text-slate-700 text-[12px] leading-relaxed flex flex-col gap-1">
+              <div className="mb-2 py-2.5 px-3 bg-slate-100 border border-slate-200 rounded-lg text-slate-700 text-[12px] leading-relaxed flex flex-col gap-1">
                 <span className="font-bold text-[11px] text-slate-500 uppercase">Active Global WHERE Conditions:</span>
                 <div className="flex flex-wrap gap-1.5">
                   {whereConditions.map((cond, i) => (
                     <span key={i} className="bg-slate-200 px-2 py-0.5 rounded text-[11px] font-mono">
                       {cond}
                     </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {localConds.length > 0 && (
+              <div className="mb-2.5 py-3 px-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-col gap-2">
+                <span className="font-bold text-[11px] text-slate-500 uppercase tracking-wider">Active Card WHERE Conditions</span>
+                <div className="flex flex-col gap-2">
+                  {localConds.map((cond, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        className="flex-1 py-1.5 px-3 border border-slate-300 rounded-lg font-mono text-[12px] bg-white outline-none transition-all duration-150 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                        value={cond.full}
+                        onChange={e => handleLocalCondChange(cond.full, e.target.value)}
+                        placeholder="e.g. submissions.submission_type = 'story'"
+                      />
+                      <button
+                        className="py-1.5 px-2.5 bg-transparent border border-slate-200 hover:border-red-200 text-slate-400 hover:text-red-600 rounded-lg cursor-pointer transition-all duration-150 text-[12px] font-bold"
+                        onClick={() => handleLocalCondDelete(cond.full)}
+                        title="Remove condition"
+                      >
+                        ✕
+                      </button>
+                    </div>
                   ))}
                 </div>
               </div>
@@ -413,43 +617,75 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
             )}
           </div>
         )}
-        {activeTab === 'variables' && variables.length > 0 && (
+        {activeTab === 'variables' && (
           <div className="mt-0 p-0">
             <label className="block text-[14px] font-bold text-slate-700 mb-1 mt-0">SQL Variable Settings & Filter Mappings</label>
             <p className="m-0 mb-3.5 text-[12px] text-slate-500 leading-normal">
               Map SQL template variables (e.g. <code>{"{{variable}}"}</code>) to dashboard filters, and configure their database dimensions.
             </p>
             <div className="flex flex-col gap-2 mt-2">
-              {variables.map(variable => {
-                const currentTag = (form.templateTags || {})[variable] || {
-                  id: variable,
-                  name: variable,
-                  'display-name': variable.replace(/_/g, ' '),
-                  type: 'text',
-                  required: false,
-                };
-                
-                const currentMapping = (form.parameterMappings || []).find(m => m.target?.[1]?.[1] === variable);
-                const currentFilterId = currentMapping ? currentMapping.parameter_id : '';
-                let selectedFieldId = '';
-                if (Array.isArray(currentTag.dimension)) {
-                  selectedFieldId = currentTag.dimension[1];
-                  if (typeof selectedFieldId === 'object' && selectedFieldId !== null && currentTag.dimension[2] !== undefined) {
-                    selectedFieldId = currentTag.dimension[2];
-                  }
-                }
-                const accentColor = getVarAccentColor(currentTag);
-                const typeLabel = getVarTypeLabel(currentTag);
+              {(() => {
+                const allTagKeys = Array.from(new Set([
+                  ...variables,
+                  ...Object.keys(form.templateTags || {})
+                ]));
 
-                return (
-                  <div key={variable} className="bg-white border border-slate-200 rounded-[10px] p-3.5 mb-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.04)] transition-all duration-150" style={{ borderLeft: `4px solid ${accentColor}` }}>
-                    {/* Step 1: Variable Badge */}
-                    <div className="flex justify-between items-center mb-2.5 border-b border-slate-100 pb-2">
-                      <span className="text-[12px] font-mono font-bold text-indigo-600 bg-indigo-50 py-0.5 px-2 rounded-md border border-indigo-200">{"{{" } {variable} {"}}"}</span>
-                      <span style={{ fontSize: 11, color: accentColor, fontWeight: 600 }}>
-                        {typeLabel}
-                      </span>
+                if (allTagKeys.length === 0) {
+                  return (
+                    <div className="text-[12px] text-slate-400 italic py-4 text-center bg-slate-50 rounded-lg border border-dashed border-slate-200">
+                      No SQL variables found. Add template variables to your query (e.g. <code>{"{{variable_name}}"}</code>) to map them.
                     </div>
+                  );
+                }
+
+                return allTagKeys.map(variable => {
+                  const isInQuery = variables.includes(variable);
+                  const currentTag = (form.templateTags || {})[variable] || {
+                    id: variable,
+                    name: variable,
+                    'display-name': variable.replace(/_/g, ' '),
+                    type: 'text',
+                    required: false,
+                  };
+                  
+                  const currentMapping = (form.parameterMappings || []).find(m => m.target?.[1]?.[1] === variable);
+                  const currentFilterId = currentMapping ? currentMapping.parameter_id : '';
+                  let selectedFieldId = '';
+                  if (Array.isArray(currentTag.dimension)) {
+                    selectedFieldId = currentTag.dimension[1];
+                    if (typeof selectedFieldId === 'object' && selectedFieldId !== null && currentTag.dimension[2] !== undefined) {
+                      selectedFieldId = currentTag.dimension[2];
+                    }
+                  }
+                  const accentColor = isInQuery ? getVarAccentColor(currentTag) : '#94a3b8';
+                  const typeLabel = getVarTypeLabel(currentTag);
+
+                  return (
+                    <div key={variable} className="bg-white border border-slate-200 rounded-[10px] p-3.5 mb-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.04)] transition-all duration-150" style={{ borderLeft: `4px solid ${accentColor}` }}>
+                      {/* Step 1: Variable Badge */}
+                      <div className="flex justify-between items-center mb-2.5 border-b border-slate-100 pb-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-[12px] font-mono font-bold py-0.5 px-2 rounded-md border ${isInQuery ? 'text-indigo-600 bg-indigo-50 border-indigo-200' : 'text-slate-500 bg-slate-50 border-slate-200'}`}>{"{{" } {variable} {"}}"}</span>
+                          {!isInQuery && (
+                            <span className="text-[10px] font-semibold text-slate-500 bg-slate-100 py-0.5 px-1.5 rounded-md border border-slate-200">Not in query</span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span style={{ fontSize: 11, color: accentColor, fontWeight: 600 }}>
+                            {typeLabel}
+                          </span>
+                          {!isInQuery && (
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveQuestionFilter(variable)}
+                              className="bg-transparent border-none cursor-pointer text-slate-400 text-[14px] font-bold hover:text-slate-600 flex items-center justify-center p-0.5"
+                              title="Delete this template tag"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </div>
+                      </div>
                     
                     {/* Step 2: Configuration */}
                     <div className="grid grid-cols-2 gap-2.5">
@@ -470,18 +706,56 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                       {/* Step 3: Dashboard Mapping */}
                       <div>
                         <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 mt-1 tracking-wider">🔗 Dashboard Filter</span>
-                        <select
-                          className="flex-1 py-1.5 px-2 border border-slate-300 rounded-md text-[12px] min-w-[100px] bg-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 w-full"
-                          value={currentFilterId}
-                          onChange={e => handleMapFilter(variable, e.target.value)}
-                        >
-                          <option value="">-- No Mapping --</option>
-                          {(filters || []).map(f => (
-                            <option key={f.id} value={f.id}>
-                              {f.name} ({f.slug})
-                            </option>
-                          ))}
-                        </select>
+                        <div className="flex gap-2 items-center">
+                          <select
+                            className="flex-1 py-1.5 px-2 border border-slate-300 rounded-md text-[12px] min-w-[100px] bg-white outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 w-full"
+                            value={currentFilterId}
+                            onChange={e => {
+                              const val = e.target.value;
+                              if (val.startsWith('predefined:')) {
+                                handleCreatePredefinedFilter(variable, val.split(':')[1]);
+                              } else if (val === 'create_new_custom') {
+                                handleCreateCustomFilter(variable, selectedFieldId);
+                              } else {
+                                handleMapFilter(variable, val);
+                              }
+                            }}
+                          >
+                            <option value="">-- No Mapping --</option>
+                            
+                            {filters && filters.length > 0 && (
+                              <optgroup label="Dashboard Filters">
+                                {filters.map(f => (
+                                  <option key={f.id} value={f.id}>
+                                    {f.name} ({f.slug})
+                                  </option>
+                                ))}
+                              </optgroup>
+                            )}
+
+                            <optgroup label="+ Add Predefined Filter to Dashboard">
+                              <option value="predefined:leader_category">Leader Category</option>
+                              <option value="predefined:program">Program</option>
+                              <option value="predefined:state">State</option>
+                              <option value="predefined:district">District</option>
+                              <option value="predefined:date">Date</option>
+                            </optgroup>
+
+                            <optgroup label="+ Custom Filter">
+                              <option value="create_new_custom">+ Create Custom Filter...</option>
+                            </optgroup>
+                          </select>
+                          {currentFilterId && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteDashboardFilter(currentFilterId, variable)}
+                              className="p-1.5 border border-red-200 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-md transition-colors flex items-center justify-center shrink-0 h-[32px] w-[32px]"
+                              title="Delete this dashboard filter"
+                            >
+                              🗑️
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       {currentTag.type === 'dimension' ? (
@@ -680,8 +954,9 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                     </div>
                   </div>
                 );
-              })}
-            </div>
+              });
+            })()}
+          </div>
 
             {/* Question-Specific Filters Section */}
             <div className="mt-5 border-t-2 border-slate-200 pt-4">
@@ -694,119 +969,7 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                 </div>
               </div>
 
-              {/* Existing question-only variables */}
-              {questionOnlyVars.map(([name, tag]) => (
-                <div key={name} className="bg-amber-50 border border-slate-200 rounded-[10px] p-3.5 mb-2.5 shadow-[0_1px_3px_rgba(0,0,0,0.04)] transition-all duration-150 border-l-4 border-l-amber-500">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="text-[12px] font-mono font-bold py-0.5 px-2 rounded-md border bg-amber-100 text-amber-800 border-amber-200">{"{{" } {name} {"}}"}</span>
-                    <button
-                      className="bg-transparent border-none cursor-pointer text-slate-400 text-[13px] hover:text-slate-600"
-                      onClick={() => handleRemoveQuestionFilter(name)}
-                      title="Remove question filter"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2.5">
-                    <div>
-                      <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 mt-1 tracking-wider">Widget Type</span>
-                      <select
-                        className="flex-1 py-1.5 px-2 border border-slate-300 rounded-md text-[12px] min-w-[100px] bg-white outline-none w-full"
-                        value={tag.values_source_type === 'static-list' ? 'dropdown' : 'input'}
-                        onChange={e => {
-                          const isDropdown = e.target.value === 'dropdown';
-                          const existingTags = { ...(form.templateTags || {}) };
-                          const updated = {
-                            ...tag,
-                            values_source_type: isDropdown ? 'static-list' : null,
-                            values_source_config: isDropdown ? (tag.values_source_config || { values: [] }) : null,
-                          };
-                          set('templateTags', { ...existingTags, [name]: updated });
-                        }}
-                      >
-                        <option value="input">Input Box</option>
-                        <option value="dropdown">Dropdown</option>
-                      </select>
-                    </div>
-                    <div>
-                      <span className="block text-[10px] font-bold text-slate-500 uppercase mb-0.5 mt-1 tracking-wider">Default Value</span>
-                      <input
-                        className="flex-1 py-1.5 px-2 border border-slate-300 rounded-md text-[12px] min-w-[100px] bg-white outline-none w-full"
-                        value={tag.default || ''}
-                        placeholder="e.g. Monthly"
-                        onChange={e => handleTagPropertyChange(name, 'default', e.target.value || null)}
-                      />
-                    </div>
-                    {tag.values_source_type === 'static-list' && (
-                      <div className="col-span-2 mt-2 border-t border-dashed border-amber-200 pt-2">
-                        <span className="text-[10px] font-bold text-amber-800 block mb-1.5 uppercase">
-                          Static Options
-                        </span>
-                        <div className="flex flex-wrap gap-1 mb-2">
-                          {(tag.values_source_config?.values || []).map((val, idx) => (
-                            <span key={idx} className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 py-0.5 px-2 rounded-md text-[11px] font-semibold border border-amber-200">
-                              {val}
-                              <span
-                                className="cursor-pointer text-amber-700 font-bold text-[10px] ml-1 hover:text-amber-900"
-                                onClick={() => {
-                                  const newValues = (tag.values_source_config?.values || []).filter((_, i) => i !== idx);
-                                  const existingTags = { ...(form.templateTags || {}) };
-                                  const updated = { ...tag, values_source_config: { ...tag.values_source_config, values: newValues } };
-                                  set('templateTags', { ...existingTags, [name]: updated });
-                                }}
-                              >
-                                ✕
-                              </span>
-                            </span>
-                          ))}
-                          {(tag.values_source_config?.values || []).length === 0 && (
-                            <span className="text-[11px] text-amber-700 italic">No options yet</span>
-                          )}
-                        </div>
-                        <div className="flex gap-1">
-                          <input
-                            className="flex-1 py-1.5 px-2 border border-slate-300 rounded-md text-[12px] min-w-[100px] bg-white outline-none"
-                            placeholder="New option..."
-                            onKeyDown={e => {
-                              if (e.key === 'Enter') {
-                                e.preventDefault();
-                                const val = e.target.value.trim();
-                                if (val) {
-                                  const currentValues = tag.values_source_config?.values || [];
-                                  if (!currentValues.includes(val)) {
-                                    const existingTags = { ...(form.templateTags || {}) };
-                                    const updated = { ...tag, values_source_config: { ...tag.values_source_config, values: [...currentValues, val] } };
-                                    set('templateTags', { ...existingTags, [name]: updated });
-                                  }
-                                  e.target.value = '';
-                                }
-                              }
-                            }}
-                          />
-                          <button
-                            className="py-1 px-2 bg-indigo-600 text-white border-none rounded-md cursor-pointer font-bold text-[12px] transition-all duration-150 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                            onClick={e => {
-                              const input = e.target.previousSibling;
-                              const val = input.value.trim();
-                              if (val) {
-                                const currentValues = tag.values_source_config?.values || [];
-                                if (!currentValues.includes(val)) {
-                                  const existingTags = { ...(form.templateTags || {}) };
-                                  const updated = { ...tag, values_source_config: { ...tag.values_source_config, values: [...currentValues, val] } };
-                                  set('templateTags', { ...existingTags, [name]: updated });
-                                }
-                                input.value = '';
-                              }
-                            }}
-                          >
-                            +
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
+
 
               {/* Quick Templates */}
               <div className="mt-2 mb-1">
@@ -816,7 +979,7 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                 <div className="flex gap-1.5 mt-1.5 flex-wrap">
                   {!hasReportingPeriodDropdown && (
                     <button
-                      className="py-1.5 px-3 border border-amber-200 rounded-lg bg-amber-50 cursor-pointer text-[11px] font-semibold text-amber-800 flex items-center gap-1 transition-all duration-150 hover:bg-amber-100"
+                      className="py-1.5 px-3 border border-indigo-200 rounded-lg bg-indigo-50/50 cursor-pointer text-[11px] font-semibold text-indigo-800 flex items-center gap-1 transition-all duration-150 hover:bg-indigo-100/50"
                       onClick={() => {
                         const slug = 'reporting_period';
                         const existingTags = { ...(form.templateTags || {}) };
@@ -855,14 +1018,14 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
               {/* Add Question Filter Form */}
               {!showQFilterForm ? (
                 <button
-                  className="py-1.5 px-3 bg-amber-800 text-white border-none rounded-md cursor-pointer font-bold text-[12px] transition-all duration-150 hover:bg-amber-950 w-full mt-2"
+                  className="py-1.5 px-3 bg-indigo-600 text-white border-none rounded-md cursor-pointer font-bold text-[12px] transition-all duration-150 hover:bg-indigo-700 w-full mt-2"
                   onClick={() => setShowQFilterForm(true)}
                 >
                   + Add Custom Question Filter
                 </button>
               ) : (
-                <div className="border border-amber-200 rounded-lg p-3 mt-2 bg-amber-50">
-                  <span className="text-[12px] font-bold block mb-2 text-amber-800">
+                <div className="border border-slate-200 rounded-lg p-3 mt-2 bg-slate-50/50">
+                  <span className="text-[12px] font-bold block mb-2 text-slate-800">
                     New Question-Specific Filter
                   </span>
                   <div className="mb-2">
@@ -893,7 +1056,7 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                       Cancel
                     </button>
                     <button
-                      className="py-1.5 px-3 bg-amber-800 text-white border-none rounded-md cursor-pointer font-bold text-[12px] transition-all duration-150 hover:bg-amber-900 flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="py-1.5 px-3 bg-indigo-600 text-white border-none rounded-md cursor-pointer font-bold text-[12px] transition-all duration-150 hover:bg-indigo-700 flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
                       onClick={handleAddQuestionFilter}
                       disabled={!qFilterName}
                     >

@@ -376,3 +376,121 @@ export function injectPreviewFilterValues(query, parameterMappings = [], filters
   return sql;
 }
 
+export function stripSqlComments(sql = '') {
+  let clean = sql.replace(/--.*$/gm, '');
+  clean = clean.replace(/\/\*[\s\S]*?\*\//g, '');
+  return clean;
+}
+
+export function extractEqualityConditions(query = '') {
+  if (!query) return [];
+  const cleanQuery = stripSqlComments(query);
+  
+  // Find where index
+  let whereIdx = -1;
+  let parenDepth = 0;
+  for (let i = 0; i < cleanQuery.length; i++) {
+    if (cleanQuery[i] === '(') parenDepth++;
+    else if (cleanQuery[i] === ')') parenDepth--;
+    else if (parenDepth === 0 && cleanQuery.slice(i, i + 5).toLowerCase() === 'where' && (i === 0 || /\s/.test(cleanQuery[i-1])) && (i + 5 === cleanQuery.length || /\s/.test(cleanQuery[i+5]))) {
+      whereIdx = i;
+      break;
+    }
+  }
+  
+  if (whereIdx === -1) return [];
+  
+  let endIdx = cleanQuery.length;
+  parenDepth = 0;
+  const keywords = ['group by', 'order by', 'limit', 'union'];
+  for (let i = whereIdx + 5; i < cleanQuery.length; i++) {
+    if (cleanQuery[i] === '(') parenDepth++;
+    else if (cleanQuery[i] === ')') {
+      if (parenDepth === 0) {
+        endIdx = i;
+        break;
+      }
+      parenDepth--;
+    } else if (parenDepth === 0) {
+      const remaining = cleanQuery.slice(i).toLowerCase();
+      const foundKeyword = keywords.find(kw => remaining.startsWith(kw) && /\s/.test(cleanQuery[i-1]) && (i + kw.length === cleanQuery.length || /\s/.test(cleanQuery[i+kw.length])));
+      if (foundKeyword) {
+        endIdx = i;
+        break;
+      }
+    }
+  }
+  
+  const whereText = cleanQuery.slice(whereIdx + 5, endIdx);
+  
+  // Replace optional blocks brackets with spaces to parse inside them
+  const textToParse = whereText.replace(/\[\[/g, ' ').replace(/\]\]/g, ' ');
+  
+  // Split the text part by AND at depth 0
+  const conds = [];
+  let currentCond = '';
+  let pDepth = 0;
+  let j = 0;
+  while (j < textToParse.length) {
+    if (textToParse[j] === '(') {
+      pDepth++;
+      currentCond += '(';
+      j++;
+      continue;
+    }
+    if (textToParse[j] === ')') {
+      pDepth = Math.max(0, pDepth - 1);
+      currentCond += ')';
+      j++;
+      continue;
+    }
+
+    if (pDepth === 0) {
+      const remaining = textToParse.slice(j);
+      const andMatch = /^(?:and)\b/i.exec(remaining);
+      if (andMatch) {
+        const trimmed = currentCond.trim();
+        if (trimmed) conds.push(trimmed);
+        currentCond = '';
+        j += andMatch[0].length;
+        continue;
+      }
+    }
+
+    currentCond += textToParse[j];
+    j++;
+  }
+  const trimmed = currentCond.trim();
+  if (trimmed) conds.push(trimmed);
+  
+  const extracted = [];
+  for (const cond of conds) {
+    const cleaned = cond.trim();
+    if (!cleaned) continue;
+    
+    // Ignore 1=1
+    if (/^1\s*=\s*1$/.test(cleaned)) continue;
+    // Ignore template tags
+    if (/\{\{.*?\}\}/.test(cleaned)) continue;
+    // Ignore null checks
+    if (/\b(is\s+null|is\s+not\s+null|not\s+null|null)\b/i.test(cleaned)) continue;
+    
+    const parts = cleaned.split('=');
+    if (parts.length === 2) {
+      const lhs = parts[0].trim();
+      const rhs = parts[1].trim();
+      
+      if (/^[a-zA-Z0-9_.-]+$/.test(lhs) && (/^(['"].*['"]|\d+|\w+)$/.test(rhs))) {
+        extracted.push({
+          full: `${lhs} = ${rhs}`,
+          lhs: lhs,
+          rhs: rhs
+        });
+      }
+    }
+  }
+  
+  return extracted;
+}
+
+

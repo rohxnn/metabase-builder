@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { actions } from '../store';
 import { saveDashboard, publishDashboard, listDatabases, getDatabaseMetadata } from '../services/api';
@@ -11,7 +11,31 @@ export default function Builder({ onBack }) {
   const dispatch = useDispatch();
   const state = useSelector(s => s.builder);
   const tabs = state.config.dashboard.tabs;
+  const filters = state.config.filters;
+  const metadata = state.metadata;
+  const lastSavedRef = useRef(null);
+  const [showUnsavedModal, setShowUnsavedModal] = useState(false);
   const [activeTab, setActiveTab] = useState(tabs.length > 0 ? 0 : null);
+  const [initialSyncDone, setInitialSyncDone] = useState(false);
+
+  useEffect(() => {
+    if (state.id) {
+      if (metadata || initialSyncDone) {
+        lastSavedRef.current = JSON.stringify({
+          name: state.name,
+          description: state.description,
+          config: state.config,
+        });
+        setInitialSyncDone(true);
+      } else {
+        lastSavedRef.current = JSON.stringify({
+          name: state.name,
+          description: state.description,
+          config: state.config,
+        });
+      }
+    }
+  }, [state.id, metadata, initialSyncDone]);
 
   useEffect(() => {
     if (tabs.length === 0) {
@@ -48,8 +72,7 @@ export default function Builder({ onBack }) {
     fetchMeta();
   }, [dispatch]);
 
-  const filters = state.config.filters;
-  const metadata = state.metadata;
+
 
   useEffect(() => {
     if (!metadata || !filters || filters.length === 0) return;
@@ -152,6 +175,11 @@ export default function Builder({ onBack }) {
         metabase_card_ids: state.metabase_card_ids || {},
       });
       setMessage({ type: 'success', text: 'Saved!' });
+      lastSavedRef.current = JSON.stringify({
+        name: state.name,
+        description: state.description,
+        config: state.config,
+      });
     } catch (e) {
       setMessage({ type: 'error', text: e.response?.data?.error || e.message });
     } finally {
@@ -176,10 +204,52 @@ export default function Builder({ onBack }) {
       const res = await publishDashboard(state.id);
       dispatch(actions.setStatus('published'));
       setMessage({ type: 'success', text: `Published to Metabase! Dashboard ID: ${res.dashboardId}` });
+      lastSavedRef.current = JSON.stringify({
+        name: state.name,
+        description: state.description,
+        config: state.config,
+      });
     } catch (e) {
       setMessage({ type: 'error', text: e.response?.data?.error || e.message });
     } finally {
       setPublishing(false);
+    }
+  };
+
+  const handleBackClick = () => {
+    const currentStr = JSON.stringify({
+      name: state.name,
+      description: state.description,
+      config: state.config,
+    });
+    const isDirty = lastSavedRef.current !== null && lastSavedRef.current !== currentStr;
+
+    if (isDirty) {
+      setShowUnsavedModal(true);
+    } else {
+      onBack();
+    }
+  };
+
+  const handleSaveAndExit = async () => {
+    setShowUnsavedModal(false);
+    setSaving(true);
+    setMessage(null);
+    try {
+      await saveDashboard({
+        id: state.id,
+        name: state.name,
+        description: state.description,
+        config: state.config,
+        metabase_dashboard_id: state.metabase_dashboard_id || null,
+        metabase_collection_id: state.metabase_collection_id || null,
+        metabase_card_ids: state.metabase_card_ids || {},
+      });
+      onBack();
+    } catch (e) {
+      setMessage({ type: 'error', text: e.response?.data?.error || e.message });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -189,7 +259,7 @@ export default function Builder({ onBack }) {
       <div className="flex items-center gap-4 py-3.5 px-6 bg-white border-b border-slate-200 shrink-0 shadow-sm">
         <button
           className="py-2 px-4 border border-slate-300 rounded-lg bg-white cursor-pointer text-xs font-semibold text-slate-600 transition-all hover:bg-slate-50 hover:border-slate-400"
-          onClick={onBack}
+          onClick={handleBackClick}
         >
           ← Back
         </button>
@@ -307,6 +377,41 @@ export default function Builder({ onBack }) {
           }}
           onClose={() => setAddingNewQuestion(false)}
         />
+      )}
+      {showUnsavedModal && (
+        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[2000] flex items-center justify-center p-4">
+          <div className="bg-white rounded-[16px] p-6 w-[420px] shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-slate-100 flex flex-col gap-4">
+            <div className="flex flex-col gap-1">
+              <h3 className="m-0 text-[16px] font-bold text-slate-800">Unsaved Changes</h3>
+              <span className="text-[13px] text-slate-500 leading-normal">
+                You have unsaved changes on this dashboard draft. What would you like to do?
+              </span>
+            </div>
+            <div className="flex flex-col gap-2 mt-2">
+              <button
+                type="button"
+                onClick={handleSaveAndExit}
+                className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg cursor-pointer font-bold text-[12px] transition-all text-center border-none"
+              >
+                Save Draft & Exit
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowUnsavedModal(false); onBack(); }}
+                className="w-full py-2.5 px-4 bg-white hover:bg-red-50 border border-red-200 hover:border-red-300 text-red-600 rounded-lg cursor-pointer font-semibold text-[12px] transition-all text-center"
+              >
+                Discard Changes & Exit
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowUnsavedModal(false)}
+                className="w-full py-2.5 px-4 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg cursor-pointer font-semibold text-[12px] transition-all text-center border-none"
+              >
+                Keep Editing
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
