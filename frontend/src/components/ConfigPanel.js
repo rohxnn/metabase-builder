@@ -326,6 +326,8 @@ export default function ConfigPanel() {
 
   const handleAddPredefined = (typeKey) => {
     if (!typeKey) return;
+    setSelectedFilterId(null);
+    setIsEditModalOpen(false);
     let name = '';
     let slug = '';
     let tableName = '';
@@ -377,6 +379,13 @@ export default function ConfigPanel() {
     if (!(whereConditions || []).includes(condText)) {
       dispatch(actions.addWhereCondition(condText));
     }
+  };
+
+  const handleOpenCustomFilterForm = () => {
+    setSelectedFilterId(null);
+    setIsEditModalOpen(false);
+    setShowCustomForm(true);
+    setIsFieldFilter(true);
   };
 
   const handleAddCustomFilter = () => {
@@ -879,7 +888,7 @@ export default function ConfigPanel() {
         <div className="mt-4 flex flex-col gap-2.5">
           {!showCustomForm && (
             <button
-              onClick={() => { setShowCustomForm(true); setIsFieldFilter(true); }}
+              onClick={handleOpenCustomFilterForm}
               className="w-full p-3 bg-blue-500 text-white border-none rounded-xl cursor-pointer font-bold text-xs transition-all hover:bg-blue-600 hover:shadow-md text-center flex items-center justify-center gap-1.5"
             >
               + Add Filter

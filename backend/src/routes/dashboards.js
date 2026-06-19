@@ -111,6 +111,13 @@ router.get('/user', (req, res) => {
   res.json({ email, name });
 });
 
+// Get app configuration info from environment
+router.get('/config', (req, res) => {
+  res.json({
+    defaultDatabase: req.app.get('config')?.metabase?.database || process.env.METABASE_DATABASE || 'test'
+  });
+});
+
 // List all saved dashboard configs
 router.get('/', async (req, res) => {
   try {

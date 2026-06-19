@@ -1,11 +1,32 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { actions } from '../store';
-import { saveDashboard, publishDashboard, listDatabases, getDatabaseMetadata } from '../services/api';
+import { saveDashboard, publishDashboard, listDatabases, getDatabaseMetadata, getAppConfig } from '../services/api';
 import CardPalette from './CardPalette';
 import DashboardCanvas from './DashboardCanvas';
 import ConfigPanel from './ConfigPanel';
 import CardEditor from './CardEditor';
+
+const getTabFromQuery = (tabsLength) => {
+  if (tabsLength === 0) return null;
+  const params = new URLSearchParams(window.location.search);
+  const queryTab = Number.parseInt(params.get('tab'), 10);
+  if (Number.isNaN(queryTab)) return 0;
+  return Math.min(Math.max(queryTab, 0), tabsLength - 1);
+};
+
+const updateTabQuery = (tabIndex, { replace = false } = {}) => {
+  const params = new URLSearchParams(window.location.search);
+  if (tabIndex === null || tabIndex === undefined) {
+    params.delete('tab');
+  } else {
+    params.set('tab', String(tabIndex));
+  }
+
+  const query = params.toString();
+  const url = `${window.location.pathname}${query ? `?${query}` : ''}${window.location.hash}`;
+  window.history[replace ? 'replaceState' : 'pushState']({}, '', url);
+};
 
 export default function Builder({ onBack }) {
   const dispatch = useDispatch();
@@ -15,7 +36,7 @@ export default function Builder({ onBack }) {
   const metadata = state.metadata;
   const lastSavedRef = useRef(null);
   const [showUnsavedModal, setShowUnsavedModal] = useState(false);
-  const [activeTab, setActiveTab] = useState(tabs.length > 0 ? 0 : null);
+  const [activeTab, setActiveTab] = useState(() => getTabFromQuery(tabs.length));
   const [initialSyncDone, setInitialSyncDone] = useState(false);
 
   useEffect(() => {
@@ -41,15 +62,31 @@ export default function Builder({ onBack }) {
     if (tabs.length === 0) {
       if (activeTab !== null) {
         setActiveTab(null);
+        updateTabQuery(null, { replace: true });
       }
     } else {
       if (activeTab === null) {
-        setActiveTab(0);
+        const nextTab = getTabFromQuery(tabs.length);
+        setActiveTab(nextTab);
+        updateTabQuery(nextTab, { replace: true });
       } else if (activeTab >= tabs.length) {
-        setActiveTab(tabs.length - 1);
+        const nextTab = tabs.length - 1;
+        setActiveTab(nextTab);
+        updateTabQuery(nextTab, { replace: true });
+      } else {
+        updateTabQuery(activeTab, { replace: true });
       }
     }
   }, [tabs, activeTab]);
+
+  useEffect(() => {
+    const syncTabFromQuery = () => {
+      setActiveTab(getTabFromQuery(tabs.length));
+    };
+
+    window.addEventListener('popstate', syncTabFromQuery);
+    return () => window.removeEventListener('popstate', syncTabFromQuery);
+  }, [tabs.length]);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [message, setMessage] = useState(null);
@@ -58,9 +95,15 @@ export default function Builder({ onBack }) {
   useEffect(() => {
     const fetchMeta = async () => {
       try {
-        const dbs = await listDatabases();
+        const [dbs, config] = await Promise.all([
+          listDatabases(),
+          getAppConfig().catch(() => ({}))
+        ]);
         const dbList = dbs?.data || dbs || [];
-        const activeDb = dbList.find(d => d.name === 'test' || d.name === 'mitra5') || dbList[0];
+        const defaultDbName = config?.defaultDatabase || 'test';
+        const activeDb = dbList.find(d => d.name === defaultDbName) ||
+                         dbList.find(d => d.name === 'test' || d.name === 'mitra5') ||
+                         dbList[0];
         if (activeDb) {
           const meta = await getDatabaseMetadata(activeDb.id);
           dispatch(actions.setMetadata(meta));
@@ -231,6 +274,11 @@ export default function Builder({ onBack }) {
     }
   };
 
+  const handleTabChange = (tabIndex) => {
+    setActiveTab(tabIndex);
+    updateTabQuery(tabIndex);
+  };
+
   const handleSaveAndExit = async () => {
     setShowUnsavedModal(false);
     setSaving(true);
@@ -333,7 +381,7 @@ export default function Builder({ onBack }) {
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm hover:bg-indigo-700'
                     : 'bg-white text-slate-600 border-slate-300 hover:bg-slate-50 hover:border-slate-400'
                 }`}
-                onClick={() => setActiveTab(i)}
+                onClick={() => handleTabChange(i)}
               >
                 {tab.name}
               </button>

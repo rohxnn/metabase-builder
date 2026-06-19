@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { actions } from '../store';
-import { runQuery, listDatabases, getDatabaseMetadata } from '../services/api';
+import { runQuery, listDatabases, getDatabaseMetadata, getAppConfig } from '../services/api';
 import { v4 as uuidv4 } from 'uuid';
-import { hasMetabaseFilters, toPreviewSql, injectWhereConditions, extractEqualityConditions } from '../services/queryPreview';
+import { hasMetabaseFilters, toPreviewSql, injectWhereConditions, extractEqualityConditions, queryEndsWithSemicolon } from '../services/queryPreview';
 
 const DISPLAY_TYPES = [
   'table', 'bar', 'line', 'pie', 'scalar', 'map', 'area', 'row',
@@ -123,6 +123,7 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
     .map(value => Array.isArray(value) ? value[0] : value);
   const hasReportingPeriodDropdown = reportingPeriodTag?.values_source_type === 'static-list'
     && REPORTING_PERIOD_VALUES.every(value => reportingPeriodValues.includes(value));
+  const hasActiveWhereConditions = whereConditions.length > 0 || localConds.length > 0;
 
   // Load database metadata
   useEffect(() => {
@@ -132,10 +133,16 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
         setLoadingMetadata(true);
         let dbId = form.databaseId;
         if (!dbId) {
-          const dbs = await listDatabases();
+          const [dbs, config] = await Promise.all([
+            listDatabases(),
+            getAppConfig().catch(() => ({}))
+          ]);
           const dbList = dbs?.data || dbs || [];
           if (dbList.length > 0) {
-            const activeDb = dbList.find(d => d.name === 'test' || d.name === 'mitra5') || dbList[0];
+            const defaultDbName = config?.defaultDatabase || 'test';
+            const activeDb = dbList.find(d => d.name === defaultDbName) ||
+                             dbList.find(d => d.name === 'test' || d.name === 'mitra5') ||
+                             dbList[0];
             dbId = activeDb.id;
             setForm(f => ({ ...f, databaseId: dbId }));
           }
@@ -394,10 +401,14 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
   allFields.sort((a, b) => a.fullLabel.localeCompare(b.fullLabel));
 
   const handleRunQuery = async () => {
-    if (!form.query.trim()) return;
-    setRunning(true);
+    if (!form.query.trim() || running) return;
     setQueryError(null);
     setQueryResult(null);
+    if (hasActiveWhereConditions && queryEndsWithSemicolon(form.query)) {
+      setQueryError('No need to end the SQL with ; when active card or global WHERE conditions are applied. Remove the ; and run again.');
+      return;
+    }
+    setRunning(true);
     try {
       const finalQuery = injectWhereConditions(form.query, whereConditions, filters, metadata);
       const result = await runQuery(toPreviewSql(finalQuery));
@@ -406,6 +417,13 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
       setQueryError(e.response?.data?.error || e.message);
     } finally {
       setRunning(false);
+    }
+  };
+
+  const handleQueryKeyDown = (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      e.preventDefault();
+      handleRunQuery();
     }
   };
 
@@ -521,6 +539,15 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
             </select>
 
             <label className="block text-[12px] font-semibold text-slate-700 mb-1 mt-3.5">SQL Query</label>
+            {hasActiveWhereConditions && queryEndsWithSemicolon(form.query) ? (
+              <div className="mb-2 py-2.5 px-3.5 bg-rose-50 border border-rose-200 rounded-lg text-rose-800 text-[12px] leading-relaxed font-semibold">
+                ⚠️ Your query ends with a semicolon (<code>;</code>). Please remove it, otherwise injecting active WHERE conditions will cause a syntax error.
+              </div>
+            ) : hasActiveWhereConditions ? (
+              <div className="mb-2 py-2 px-3 bg-sky-50 border border-sky-200 rounded-lg text-sky-800 text-[12px] leading-relaxed">
+                Note: no need to end the SQL with <code>;</code> when running a query with active card or global WHERE conditions.
+              </div>
+            ) : null}
             {hasMetabaseFilters(form.query) && (
               <div className="mb-2 py-2 px-3 bg-yellow-50 border border-yellow-200 rounded-lg text-yellow-800 text-[12px] leading-relaxed">
                 ℹ️ Metabase filters are active. Preview execution ignores optional <code>[[...]]</code> clauses and treats variables as <code>NULL</code>.
@@ -570,7 +597,7 @@ export default function CardEditor({ card, filters, onSave, onClose }) {
                 value={form.query}
                 onChange={e => set('query', e.target.value)}
                 placeholder="SELECT column FROM table WHERE column = {{variable}}"
-                onKeyDown={e => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') handleRunQuery(); }}
+                onKeyDown={handleQueryKeyDown}
               />
               <button
                 className="absolute bottom-2 right-2 py-1.5 px-3.5 bg-gradient-to-br from-emerald-500 to-emerald-600 text-white border-none rounded-md cursor-pointer text-[12px] font-bold shadow-[0_2px_6px_rgba(16,185,129,0.3)] transition-all duration-150 hover:from-emerald-600 hover:to-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"

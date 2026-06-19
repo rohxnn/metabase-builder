@@ -1,5 +1,11 @@
 export const hasMetabaseFilters = (query = '') => /\{\{\s*[a-zA-Z0-9_.-]+\s*\}\}/.test(query);
 
+export function queryEndsWithSemicolon(query = '') {
+  const cleanSingle = query.replace(/--.*$/gm, '');
+  const cleanMulti = cleanSingle.replace(/\/\*[\s\S]*?\*\//g, '');
+  return /;\s*$/.test(cleanMulti);
+}
+
 export const toPreviewSql = (query = '') => {
   let sql = query;
 
