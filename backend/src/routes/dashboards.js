@@ -42,7 +42,34 @@ router.get('/metabase/collections', async (req, res) => {
 
 router.get('/metabase/dashboards', async (req, res) => {
   try {
-    res.json(await metabase.listDashboards());
+    const [dashboards, collections] = await Promise.all([
+      metabase.listDashboards(),
+      metabase.listCollections().catch(() => [])
+    ]);
+
+    const collectionMap = {};
+    if (Array.isArray(collections)) {
+      collections.forEach(c => {
+        if (c && c.id) {
+          collectionMap[c.id] = c.name;
+        }
+      });
+    }
+
+    const enriched = (dashboards || []).map(d => {
+      const collectionId = d.collection_id;
+      let collectionName = d.collection?.name || d.collection_name;
+      if (!collectionName && collectionId && collectionMap[collectionId]) {
+        collectionName = collectionMap[collectionId];
+      }
+      return {
+        ...d,
+        collection_name: collectionName || null,
+        collection: d.collection ? { ...d.collection, name: collectionName || d.collection.name } : (collectionId ? { id: collectionId, name: collectionName || null } : null)
+      };
+    });
+
+    res.json(enriched);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

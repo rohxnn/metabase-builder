@@ -32,9 +32,11 @@ A visual drag-and-drop dashboard orchestrator that publishes directly to Metabas
 ## Key Features
 
 *   **Visual Drag-and-Drop Canvas:** Arrange, resize, and position cards dynamically across multiple tabs on the dashboard layout utilizing `react-grid-layout`.
-*   **Inline Card Queries:** Write SQL queries directly inside each card inside the Card Editor modal. You do not need to create individual Saved Questions in Metabase first—the builder automatically normalizes, compiles, and registers them.
-*   **Dynamic Dashboard Filter Mapping:** Register and map SQL template variables (`{{variable}}` or `{{dimension}}`) directly to dashboard-level filter dropdowns. Create predefined filters (*State, District, Date, Leader Category, Program*) or custom filters directly inside the mapping selector.
-*   **Card-Level WHERE Conditions:** Refine SQL queries locally on a single card (e.g. `submissions.submission_type = 'story'`) using inline input textboxes that automatically synchronize with the query code.
+*   **Easy Dashboard Duplication:** Duplicate any dashboard configuration draft with a single click. This creates an independent copy in the PostgreSQL database, enabling quick dashboard cloning and templating.
+*   **Inline Card Queries:** Write SQL queries directly inside each card within the Card Editor modal. You do not need to create individual Saved Questions in Metabase first—the builder automatically normalizes, compiles, and registers them.
+*   **On-the-Fly Filter Mapping & Creation:** When you define a new SQL variable or template tag inside a question's query, you can map it directly to a dashboard-level filter. If the filter does not exist yet, you can create and register it (both predefined filters like State, District, Date, Leader Category, Program, or custom filters) directly from the Card Editor mapping dropdown.
+*   **Synchronized Global WHERE Conditions:** View and manage all active global WHERE conditions from a unified UI. Updating a global condition automatically synchronizes and updates the query parameters for all cards across the entire dashboard.
+*   **Individual Active WHERE Conditions:** Configure local card-level WHERE conditions (e.g., `submissions.submission_type = 'story'`) independently within each Card Editor to refine the local query logic on a single card without affecting others.
 *   **Staging Preview Sandbox:** Toggle into "Preview Mode" to test cascading / linked filters (e.g., selecting a State narrows down the District list to only show districts belonging to that State) and query database metadata in real-time.
 
 

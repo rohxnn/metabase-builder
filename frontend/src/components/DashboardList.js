@@ -773,6 +773,9 @@ export default function DashboardList({ onOpen, onCreate }) {
                     : sortedMetabaseDashboards.map(d => ({ ...d, isLocal: false }))
                 ).map((d, index) => {
                   const isLocal = d.isLocal;
+                  const collectionName = isLocal
+                    ? (d.config?.collection?.name || 'Unknown')
+                    : (d.collection?.name || d.collection_name || 'Unknown');
                   return (
                     <div key={d.id} className="flex justify-between items-center gap-5 border border-slate-200/60 rounded-xl p-5 bg-white shadow-sm transition-all hover:shadow-md">
                       <div className="flex items-center gap-4 min-w-0">
@@ -789,6 +792,14 @@ export default function DashboardList({ onOpen, onCreate }) {
                               }`}>{d.status === 'published' ? 'PUBLISHED' : 'DRAFT'}</span>
                             ) : (
                               <span className="py-0.5 px-2 rounded bg-indigo-50 text-indigo-700 text-[9px] font-extrabold uppercase tracking-wider border border-indigo-200/20">METABASE</span>
+                            )}
+                            {collectionName && (
+                              <span className="py-0.5 px-2 rounded bg-indigo-50 text-indigo-700 text-[9px] font-extrabold uppercase tracking-wider border border-indigo-200/20 flex items-center gap-1">
+                                <svg className="w-2.5 h-2.5 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                </svg>
+                                {collectionName}
+                              </span>
                             )}
                           </div>
                           {d.description && <div className="mt-1 text-slate-500 text-xs overflow-hidden text-ellipsis whitespace-nowrap max-w-[500px]" title={d.description}>{d.description}</div>}
@@ -807,6 +818,14 @@ export default function DashboardList({ onOpen, onCreate }) {
                                   </svg>
                                   {d.config?.filters?.length || 0} filters
                                 </span>
+                                {collectionName && (
+                                  <span className="flex items-center text-indigo-600/80">
+                                    <svg className="w-3.5 h-3.5 mr-1 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                    </svg>
+                                    {collectionName}
+                                  </span>
+                                )}
                                 {d.metabase_dashboard_id && (
                                   <span className="py-0.5 px-1.5 bg-slate-100 text-slate-500 rounded text-[9px] font-extrabold tracking-wide border border-slate-200/30">
                                     Metabase #{d.metabase_dashboard_id}
@@ -815,7 +834,14 @@ export default function DashboardList({ onOpen, onCreate }) {
                               </>
                             ) : (
                               <>
-                                <span className="text-indigo-600/70">{d.collection?.name || d.collection_name || 'Metabase Collection'}</span>
+                                {collectionName && (
+                                  <span className="flex items-center text-indigo-600/80">
+                                    <svg className="w-3.5 h-3.5 mr-1 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                                    </svg>
+                                    {collectionName}
+                                  </span>
+                                )}
                                 <span className="py-0.5 px-1.5 bg-slate-100 text-slate-500 rounded text-[9px] font-extrabold tracking-wide border border-slate-200/30">
                                   Metabase Original
                                 </span>
