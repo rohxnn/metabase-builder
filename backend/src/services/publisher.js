@@ -566,6 +566,107 @@ function buildCardParameters(compiledTags = {}, finalMappings = [], filters = []
   });
 }
 
+function getCollectionParentId(collection) {
+  if (!collection) return null;
+  if (collection.parent_id !== undefined) return collection.parent_id;
+  if (collection.parentId !== undefined) return collection.parentId;
+  if (collection.parent?.id !== undefined) return collection.parent.id;
+  if (typeof collection.location === 'string') {
+    const ids = collection.location.split('/').filter(Boolean);
+    return ids.length ? Number(ids[ids.length - 1]) : null;
+  }
+  return null;
+}
+
+function getConfiguredCollectionId(collection = {}) {
+  return collection.id || collection.collectionId || collection.collection_id || collection.metabase_collection_id || null;
+}
+
+function normalizeCollectionList(collections) {
+  if (Array.isArray(collections)) return collections;
+  if (Array.isArray(collections?.data)) return collections.data;
+  return [];
+}
+
+function normalizeCollectionName(name = '') {
+  return String(name).trim().toLowerCase();
+}
+
+async function resolveCollection(collection = {}) {
+  const configuredId = getConfiguredCollectionId(collection);
+  const name = collection.name?.trim();
+
+  // 1. If name is not mentioned, show an error message.
+  if (!name) {
+    const error = new Error('Collection name is not mentioned.');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const collections = normalizeCollectionList(await metabase.listCollections());
+  
+  // Helper to loosely normalize names for matching (removes spaces, casing, special chars)
+  const looseNormalize = (str) => String(str || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+
+  // 2. Try matching by ID if configuredId is provided
+  if (configuredId) {
+    const matchingId = collections.find(c =>
+      String(c?.id) === String(configuredId) &&
+      c?.archived !== true
+    );
+    if (matchingId) {
+      console.log(`Collection selected by id, reusing: ${matchingId.id}`);
+      return { id: matchingId.id === 'root' ? null : matchingId.id, created: false };
+    }
+  }
+
+  // 3. Try matching by name loosely
+  const targetName = looseNormalize(name);
+  const matchingByName = collections.filter(c =>
+    looseNormalize(c?.name) === targetName &&
+    c?.archived !== true
+  );
+
+  const parentId = collection.parentId || collection.parent_id || null;
+  const safeParentId = configuredId && String(parentId) === String(configuredId) ? null : parentId;
+
+  if (safeParentId) {
+    const matchingParent = matchingByName.find(c => String(getCollectionParentId(c)) === String(safeParentId));
+    if (matchingParent) {
+      console.log(`Collection already exists by name and parent, reusing: ${matchingParent.id}`);
+      return { id: matchingParent.id === 'root' ? null : matchingParent.id, created: false };
+    }
+  }
+
+  const rootMatch = matchingByName.find(c => getCollectionParentId(c) === null);
+  const existingCollection = rootMatch || matchingByName[0];
+  if (existingCollection) {
+    console.log(`Collection already exists by name, reusing: ${existingCollection.id}`);
+    return { id: existingCollection.id === 'root' ? null : existingCollection.id, created: false };
+  }
+
+  // Special check: If matching "Our analytics" (or any collection containing "analytics")
+  if (targetName.includes('analytics')) {
+    const analyticsCollection = collections.find(c =>
+      c?.name && looseNormalize(c.name).includes('analytics') &&
+      c?.archived !== true
+    );
+    if (analyticsCollection) {
+      console.log(`Matching analytics collection: ${analyticsCollection.name} (id: ${analyticsCollection.id})`);
+      return { id: analyticsCollection.id === 'root' ? null : analyticsCollection.id, created: false };
+    }
+  }
+
+  // 4. If it does not exist, create the collection dynamically in Metabase
+  const collectionRes = await metabase.createCollection(
+    name,
+    collection.description || null,
+    safeParentId
+  );
+  console.log(`Collection created: ${collectionRes.id}`);
+  return { id: collectionRes.id === 'root' ? null : collectionRes.id, created: true };
+}
+
 /**
  * existingIds shape (stored in DB after first publish):
  * {
@@ -587,10 +688,11 @@ async function publish(dashboardConfig, existingIds = null) {
   if (!dbId) throw new Error(`Database '${config.metabase.database}' not found in Metabase`);
   const metadata = await metabase.getDatabaseMetadata(dbId).catch(() => null);
 
-  let collectionId, dashboardId;
+  const resolvedCollection = await resolveCollection(collection);
+  const collectionId = resolvedCollection.id;
+  let dashboardId;
 
   if (isUpdate) {
-    collectionId = existingIds.collectionId;
     dashboardId = existingIds.dashboardId;
 
     // Ensure dashboard is not archived — unarchive if needed
@@ -607,64 +709,28 @@ async function publish(dashboardConfig, existingIds = null) {
         name: dashboard.name || 'Untitled Dashboard',
         description: dashboard.description || null,
         collection_id: collectionId,
-        ...(dashboard.pin ? { collection_position: 1 } : {}),
+        collection_position: dashboard.pin !== false ? 1 : null,
       });
       dashboardId = dashRes.id;
       console.log(`New dashboard created: ${dashboardId} (replacing broken ${existingIds.dashboardId})`);
     }
 
-    // Create collection if it's missing but we have a collection name
-    if (!collectionId && collection.name && collection.name.trim()) {
-      const collectionRes = await metabase.createCollection(
-        collection.name,
-        collection.description || null,
-        collection.parentId || null
-      );
-      collectionId = collectionRes.id;
-      console.log(`Collection created (was missing): ${collectionId}`);
-      
-      // Move dashboard to the new collection
-      await metabase.put(`/dashboard/${dashboardId}`, { collection_id: collectionId });
-    }
-
-    // Update collection name/description (only if collectionId exists and name is provided)
-    if (collectionId && collection.name && collection.name.trim()) {
-      await metabase.put(`/collection/${collectionId}`, {
-        name: collection.name,
-        description: collection.description || null,
-      });
-      console.log(`Collection updated: ${collectionId}`);
-    }
-
-    // Update dashboard name/description
+    // Update dashboard details and move it into the resolved existing/new collection.
     await metabase.put(`/dashboard/${dashboardId}`, {
       name: dashboard.name || 'Untitled Dashboard',
       description: dashboard.description || null,
-      ...(dashboard.pin ? { collection_position: 1 } : {}),
+      collection_id: collectionId,
+      collection_position: dashboard.pin !== false ? 1 : null,
     });
     console.log(`Dashboard updated: ${dashboardId}`);
 
   } else {
-    // 2. Create collection (only if name is provided)
-    if (collection.name && collection.name.trim()) {
-      const collectionRes = await metabase.createCollection(
-        collection.name,
-        collection.description || null,
-        collection.parentId || null
-      );
-      collectionId = collectionRes.id;
-      console.log(`Collection created: ${collectionId}`);
-    } else {
-      collectionId = null;
-      console.log(`No collection name provided — creating dashboard in root`);
-    }
-
-    // 3. Create dashboard
+    // 2. Create dashboard in the resolved existing/new collection.
     const dashRes = await metabase.post('/dashboard', {
       name: dashboard.name || 'Untitled Dashboard',
       description: dashboard.description || null,
       collection_id: collectionId,
-      ...(dashboard.pin ? { collection_position: 1 } : {}),
+      collection_position: dashboard.pin !== false ? 1 : null,
     });
     dashboardId = dashRes.id;
     console.log(`Dashboard created: ${dashboardId}`);
@@ -929,4 +995,4 @@ async function publish(dashboardConfig, existingIds = null) {
   return { dashboardId, collectionId, cardIds: newCardIds };
 }
 
-module.exports = { publish };
+module.exports = { publish, resolveCollection };

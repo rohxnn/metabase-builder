@@ -212,7 +212,7 @@ router.post('/:id/publish', async (req, res) => {
     const updated = await db.markPublished(req.params.id, dashboardId, collectionId, cardIds);
     res.json({ success: true, dashboardId, collectionId, record: updated });
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    res.status(e.statusCode || 500).json({ error: e.message });
   }
 });
 

@@ -7,7 +7,7 @@ const METABASE_DRAFT_NAMESPACE = '9b9c2a8b-5997-4a0c-8f72-2f8f6e2f2b5a';
 
 const emptyConfig = {
   collection: { name: '', description: '', parentId: null },
-  dashboard: { name: '', description: '', pin: false, tabs: [{ name: 'Tab 1' }] },
+  dashboard: { name: '', description: '', pin: true, tabs: [{ name: 'Tab 1' }] },
   cards: [],
   filters: [],
   groups: [],
